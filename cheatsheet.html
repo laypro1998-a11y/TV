@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Шпаргалка: куда класть скрипты — Luau с нуля</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body data-root="." data-page="cheatsheet">
+<article class="lesson page">
+  <div class="crumb">📍 Шпаргалка</div>
+  <h1>Куда класть скрипты и объекты</h1>
+  <p class="lead">Держи эту страницу под рукой. Если скрипт «ничего не делает», почти всегда он лежит не там или это не тот тип скрипта.</p>
+
+  <h2>Три типа скриптов</h2>
+  <div class="table-wrap"><table>
+    <tr><th>Тип</th><th>Где выполняется</th><th>Для чего</th></tr>
+    <tr><td>📜 <b>Script</b></td><td>На <b>сервере</b>, один раз на всю игру</td><td>Правила игры, деньги, урон, сохранения: всё, что должно быть честным и общим для всех.</td></tr>
+    <tr><td>🖥️ <b>LocalScript</b></td><td>На <b>клиенте</b>, у каждого игрока свой</td><td>Нажатия клавиш, камера, интерфейс, эффекты, которые видит только этот игрок.</td></tr>
+    <tr><td>📦 <b>ModuleScript</b></td><td>Сам по себе не запускается. Работает там, откуда его вызвали через <code>require</code></td><td>Общий код и настройки, которые нужны в нескольких скриптах.</td></tr>
+  </table></div>
+
+  <h2>Где какой скрипт работает</h2>
+  <div class="table-wrap"><table>
+    <tr><th>Место</th><th>Script</th><th>LocalScript</th><th>Видит клиент?</th><th>Что туда класть</th></tr>
+    <tr><td>⚙️ ServerScriptService</td><td class="yes">✔</td><td class="no">✘</td><td class="no">Нет</td><td>Основные серверные скрипты и серверные модули</td></tr>
+    <tr><td>⚙️ ServerStorage</td><td class="no">✘*</td><td class="no">✘</td><td class="no">Нет</td><td>Шаблоны (оружие, мобы, карты), которые сервер клонирует. Скрипты тут не запускаются</td></tr>
+    <tr><td>⚙️ ReplicatedStorage</td><td class="no">✘*</td><td class="no">✘</td><td class="yes">Да</td><td>Общие модули, RemoteEvent/RemoteFunction, ассеты для клиента и сервера</td></tr>
+    <tr><td>⚙️ Workspace</td><td class="yes">✔</td><td class="no">✘**</td><td class="yes">Да</td><td>Детали мира. Script внутри детали допустим (например, лава), но в больших играх лучше держать скрипты в ServerScriptService</td></tr>
+    <tr><td>⚙️ StarterPlayer › StarterPlayerScripts</td><td class="no">✘</td><td class="yes">✔</td><td class="yes">Да</td><td>Клиентские скрипты, которые запускаются <b>один раз</b> при входе (управление, камера, контроллеры)</td></tr>
+    <tr><td>⚙️ StarterPlayer › StarterCharacterScripts</td><td class="yes">✔</td><td class="yes">✔</td><td class="yes">Да</td><td>Скрипты, которые копируются в персонажа <b>при каждом возрождении</b> (бег, анимации, эффекты на персонаже)</td></tr>
+    <tr><td>⚙️ StarterGui</td><td class="no">✘</td><td class="yes">✔</td><td class="yes">Да</td><td>ScreenGui с интерфейсом и LocalScript внутри них</td></tr>
+    <tr><td>⚙️ StarterPack</td><td class="yes">✔</td><td class="yes">✔</td><td class="yes">Да</td><td>Инструменты (Tool) со своими скриптами внутри. Игрок получает их в Backpack при каждом появлении</td></tr>
+    <tr><td>⚙️ ReplicatedFirst</td><td class="no">✘</td><td class="yes">✔</td><td class="yes">Да</td><td>Экран загрузки. Запускается раньше всего остального</td></tr>
+  </table></div>
+  <p style="font-size:14px;color:var(--muted)">* Script с <code>RunContext = Server</code> запускается и в ReplicatedStorage, но новичкам это не нужно, держи серверный код в ServerScriptService.<br>** LocalScript в Workspace не работает. Исключение: он лежит внутри персонажа игрока (через StarterCharacterScripts).</p>
+
+  <h2>Как устроен типичный проект</h2>
+  <div class="explorer">
+    <div class="ex-title">Explorer</div>
+    <ul>
+      <li class="svc">Workspace <span class="cmt">— карта, детали</span></li>
+      <li class="svc">ReplicatedStorage
+        <ul>
+          <li class="folder">Remotes
+            <ul><li class="remote">BuyItem</li><li class="remote">ShowMessage</li></ul>
+          </li>
+          <li class="folder">Shared
+            <ul><li class="module">Config <span class="cmt">— цены, настройки</span></li><li class="module">Utils</li></ul>
+          </li>
+        </ul>
+      </li>
+      <li class="svc">ServerScriptService
+        <ul>
+          <li class="script">Main <span class="cmt">— точка входа сервера</span></li>
+          <li class="folder">Services
+            <ul><li class="module">DataService</li><li class="module">ShopService</li></ul>
+          </li>
+        </ul>
+      </li>
+      <li class="svc">ServerStorage
+        <ul><li class="tool">Sword <span class="cmt">— шаблон для клонирования</span></li></ul>
+      </li>
+      <li class="svc">StarterGui
+        <ul><li class="gui">ShopGui<ul><li class="local">ShopClient</li></ul></li></ul>
+      </li>
+      <li class="svc">StarterPlayer
+        <ul>
+          <li class="folder">StarterPlayerScripts<ul><li class="local">Controls</li></ul></li>
+          <li class="folder">StarterCharacterScripts<ul><li class="local">Sprint</li></ul></li>
+        </ul>
+      </li>
+    </ul>
+  </div>
+
+  <h2>Частые ошибки</h2>
+  <div class="table-wrap"><table>
+    <tr><th>Симптом</th><th>Причина и решение</th></tr>
+    <tr><td>LocalScript молчит, в Output пусто</td><td>Он лежит в Workspace или ServerScriptService. Перенеси в StarterPlayerScripts, StarterGui или StarterCharacterScripts.</td></tr>
+    <tr><td>Script в StarterGui не работает</td><td>Интерфейс — дело клиента. Используй LocalScript.</td></tr>
+    <tr><td><code>Players.LocalPlayer</code> равен <code>nil</code></td><td>LocalPlayer есть только в LocalScript. На сервере игроков берут из событий, например <code>PlayerAdded</code>.</td></tr>
+    <tr><td>Деньги, изменённые в LocalScript, «пропадают» или их не видят другие</td><td>Изменения на клиенте не уходят на сервер. Меняй значения на сервере, а клиент пусть просит об этом через RemoteEvent.</td></tr>
+    <tr><td><code>attempt to index nil with ...</code></td><td>Объект ещё не загрузился. На клиенте используй <code>:WaitForChild("Имя")</code>.</td></tr>
+    <tr><td>Клиент не видит объект из ServerStorage или ServerScriptService</td><td>Эти места клиенту недоступны. Общие вещи храни в ReplicatedStorage.</td></tr>
+    <tr><td>Infinite yield possible on ...</td><td><code>WaitForChild</code> ждёт объект, которого нет. Проверь имя (регистр важен!) и путь.</td></tr>
+    <tr><td>DataStore не работает в Studio</td><td>Game Settings → Security → <b>Enable Studio Access to API Services</b>. Игра должна быть опубликована.</td></tr>
+  </table></div>
+
+  <h2>Быстрые заготовки</h2>
+  <h3>Сервер: реагируем на вход игрока</h3>
+  <pre data-where="ServerScriptService > Script «PlayerJoin»"><code>local Players = game:GetService("Players")
+
+Players.PlayerAdded:Connect(function(player)
+	print(player.Name .. " зашёл в игру")
+end)</code></pre>
+
+  <h3>Клиент: нажатие клавиши</h3>
+  <pre data-where="StarterPlayer > StarterPlayerScripts > LocalScript «Keys»"><code>local UserInputService = game:GetService("UserInputService")
+
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+	if gameProcessed then return end -- игрок печатает в чате
+	if input.KeyCode == Enum.KeyCode.E then
+		print("Нажата E")
+	end
+end)</code></pre>
+
+  <h3>Клиент → сервер</h3>
+  <pre data-where="StarterPlayerScripts > LocalScript"><code>local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local remote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("BuyItem")
+
+remote:FireServer("Sword")</code></pre>
+  <pre data-where="ServerScriptService > Script"><code>local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local remote = ReplicatedStorage.Remotes.BuyItem
+
+remote.OnServerEvent:Connect(function(player, itemName)
+	-- первым аргументом всегда приходит игрок, его подставляет сам Roblox
+	print(player.Name, "хочет купить", itemName)
+end)</code></pre>
+
+  <h3>Модуль</h3>
+  <pre data-where="ReplicatedStorage > ModuleScript «Config»"><code>local Config = {}
+
+Config.StartCoins = 100
+Config.Prices = {
+	Sword = 50,
+	Shield = 80,
+}
+
+return Config</code></pre>
+  <pre data-where="Любой Script или LocalScript"><code>local Config = require(game:GetService("ReplicatedStorage").Config)
+print(Config.Prices.Sword) --> 50</code></pre>
+</article>
+<script src="js/course.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,275 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Интерфейс (GUI)</title>
+<link rel="stylesheet" href="../css/style.css">
+</head>
+<body data-lesson="gui">
+<article class="lesson">
+  <h1>Интерфейс (GUI)</h1>
+  <p class="lead">Счётчик монет, полоска здоровья, кнопка магазина. Разберёмся, как устроен интерфейс в Roblox и как оживить его скриптами.</p>
+
+  <div class="goals"><strong>🎯 После урока ты сможешь:</strong>
+    <ul>
+      <li>собрать ScreenGui с надписями и кнопками;</li>
+      <li>понимать UDim2: Scale и Offset;</li>
+      <li>обрабатывать нажатия кнопок;</li>
+      <li>показывать на экране данные игрока (монеты, здоровье).</li>
+    </ul>
+  </div>
+
+  <h2>Как устроен интерфейс</h2>
+  <ul>
+    <li><b>ScreenGui</b> — «холст» на экране. Всё остальное кладут в него.</li>
+    <li><b>Frame</b> — прямоугольник-контейнер (панель, окно).</li>
+    <li><b>TextLabel</b> — текст. <b>ImageLabel</b> — картинка.</li>
+    <li><b>TextButton</b> / <b>ImageButton</b> — кнопки.</li>
+    <li><b>TextBox</b> — поле ввода.</li>
+  </ul>
+  <p>Интерфейс собирают в <b>StarterGui</b>. При появлении игрока Roblox копирует содержимое StarterGui в <b>Player › PlayerGui</b>, и именно эту копию игрок видит и с ней работают скрипты.</p>
+  <div class="explorer">
+    <div class="ex-title">Explorer</div>
+    <ul><li class="svc">StarterGui<ul><li class="gui">MainGui <span class="cmt">ScreenGui</span>
+      <ul>
+        <li class="gui">CoinsLabel <span class="cmt">TextLabel</span></li>
+        <li class="gui">ShopButton <span class="cmt">TextButton</span></li>
+        <li class="gui">ShopFrame <span class="cmt">Frame, Visible = false</span>
+          <ul><li class="gui">Title</li><li class="gui">CloseButton</li></ul>
+        </li>
+        <li class="local"><span class="hl">GuiController</span> <span class="cmt">LocalScript</span></li>
+      </ul></li></ul></li></ul>
+  </div>
+  <div class="note warn"><p>Интерфейсом управляет <b>LocalScript</b>, обычно лежащий прямо внутри ScreenGui. Script в StarterGui работать не будет.</p></div>
+  <div class="note info"><p>У ScreenGui есть свойство <code>ResetOnSpawn</code> (по умолчанию <code>true</code>): при смерти интерфейс пересоздаётся заново, вместе с LocalScript внутри. Для меню и магазинов обычно ставят <code>false</code>, чтобы окно не закрывалось при смерти.</p></div>
+
+  <h2>Размер и позиция: UDim2</h2>
+  <p>Положение элементов задаётся типом <b>UDim2</b>: по каждой оси два числа, <b>Scale</b> (доля экрана, от 0 до 1) и <b>Offset</b> (пиксели).</p>
+  <pre data-where="Шпаргалка"><code>UDim2.new(scaleX, offsetX, scaleY, offsetY)
+
+UDim2.new(0.5, 0, 0.1, 0)    -- половина ширины и 10% высоты экрана
+UDim2.new(0, 200, 0, 50)     -- ровно 200×50 пикселей
+UDim2.fromScale(0.3, 0.4)    -- только доли
+UDim2.fromOffset(200, 50)    -- только пиксели</code></pre>
+  <div class="note tip"><p>Используй <b>Scale</b> для размеров окон, чтобы интерфейс нормально выглядел и на телефоне, и на мониторе. Чтобы окно не растягивалось, добавь в него <b>UIAspectRatioConstraint</b>. Чтобы центрировать элемент, поставь <code>AnchorPoint = (0.5, 0.5)</code> и <code>Position = {0.5, 0}, {0.5, 0}</code>.</p></div>
+
+  <h2>Кнопка, которая открывает окно</h2>
+  <pre data-where="StarterGui > MainGui > LocalScript «GuiController»"><code>local gui = script.Parent
+local shopButton = gui:WaitForChild("ShopButton")
+local shopFrame = gui:WaitForChild("ShopFrame")
+local closeButton = shopFrame:WaitForChild("CloseButton")
+
+shopFrame.Visible = false
+
+shopButton.Activated:Connect(function()
+	shopFrame.Visible = not shopFrame.Visible
+end)
+
+closeButton.Activated:Connect(function()
+	shopFrame.Visible = false
+end)</code></pre>
+  <p><code>Activated</code> срабатывает на клик мышью, тап на телефоне и кнопку геймпада. Старое событие <code>MouseButton1Click</code> тоже работает, но Activated универсальнее.</p>
+
+  <h2>Показываем монеты из leaderstats</h2>
+  <p>Классическая задача: сервер меняет <code>leaderstats.Coins</code>, а надпись на экране должна обновляться. Подписываемся на изменение значения:</p>
+  <pre data-where="StarterGui > MainGui > LocalScript «CoinsDisplay»"><code>local Players = game:GetService("Players")
+local player = Players.LocalPlayer
+
+local label = script.Parent:WaitForChild("CoinsLabel")
+local leaderstats = player:WaitForChild("leaderstats")
+local coins = leaderstats:WaitForChild("Coins")
+
+local function update()
+	label.Text = `💰 {coins.Value}`
+end
+
+update()                          -- показать сразу
+coins.Changed:Connect(update)     -- и при каждом изменении</code></pre>
+  <p>Клиент только <b>показывает</b> монеты. Меняет их сервер, а репликация доставляет новое значение, и срабатывает <code>Changed</code>.</p>
+
+  <h2>Полоска здоровья</h2>
+  <div class="explorer">
+    <div class="ex-title">Explorer</div>
+    <ul><li class="svc">StarterGui<ul><li class="gui">HealthGui <span class="cmt">ResetOnSpawn = true</span>
+      <ul><li class="gui">Background <span class="cmt">Frame, Size {0.3,0},{0,24}</span>
+        <ul><li class="gui">Fill <span class="cmt">Frame, Size {1,0},{1,0}, зелёный</span></li></ul></li>
+        <li class="local">HealthBar</li></ul></li></ul></li></ul>
+  </div>
+  <pre data-where="StarterGui > HealthGui > LocalScript «HealthBar»"><code>local Players = game:GetService("Players")
+local TweenService = game:GetService("TweenService")
+
+local player = Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+local humanoid = character:WaitForChild("Humanoid")
+
+local fill = script.Parent:WaitForChild("Background"):WaitForChild("Fill")
+
+local function update()
+	local ratio = math.clamp(humanoid.Health / humanoid.MaxHealth, 0, 1)
+	TweenService:Create(fill, TweenInfo.new(0.25), {
+		Size = UDim2.fromScale(ratio, 1),
+	}):Play()
+	-- от зелёного к красному
+	fill.BackgroundColor3 = Color3.fromRGB(255, 60, 60):Lerp(Color3.fromRGB(60, 220, 90), ratio)
+end
+
+update()
+humanoid.HealthChanged:Connect(update)</code></pre>
+  <p>Так как <code>ResetOnSpawn = true</code>, после смерти GUI и скрипт пересоздадутся и найдут нового персонажа сами.</p>
+
+  <h2>Создание GUI кодом</h2>
+  <p>Обычно интерфейс рисуют в Studio, но иногда удобнее создать элементы кодом, например список товаров:</p>
+  <pre data-where="StarterGui > ShopGui > LocalScript"><code>local frame = script.Parent:WaitForChild("ItemsFrame")  -- внутри UIListLayout
+
+local items = {"Меч", "Щит", "Лук", "Зелье"}
+
+for i, itemName in items do
+	local button = Instance.new("TextButton")
+	button.Name = itemName
+	button.Size = UDim2.new(1, 0, 0, 40)
+	button.Text = itemName
+	button.TextScaled = true
+	button.LayoutOrder = i
+	button.Parent = frame
+
+	button.Activated:Connect(function()
+		print("Выбран товар:", itemName)
+	end)
+end</code></pre>
+  <div class="note tip"><p>Положи в контейнер <b>UIListLayout</b> или <b>UIGridLayout</b>, и элементы выстроятся сами. Ещё полезны <b>UICorner</b> (скруглённые углы), <b>UIStroke</b> (обводка) и <b>UIPadding</b>.</p></div>
+
+  <h2>Интерфейс над головой: BillboardGui</h2>
+  <p>Чтобы показать надпись над NPC или сундуком в 3D-мире, используют <b>BillboardGui</b> внутри детали. Он всегда повёрнут к камере. А <b>SurfaceGui</b> рисует интерфейс на поверхности детали (табло, экран в игре).</p>
+  <pre data-where="Workspace > NPC > Head > Script"><code>local head = script.Parent
+
+local billboard = Instance.new("BillboardGui")
+billboard.Size = UDim2.fromOffset(200, 50)
+billboard.StudsOffset = Vector3.new(0, 2.5, 0)
+billboard.AlwaysOnTop = true
+billboard.Parent = head
+
+local label = Instance.new("TextLabel")
+label.Size = UDim2.fromScale(1, 1)
+label.BackgroundTransparency = 1
+label.Text = "Торговец"
+label.TextColor3 = Color3.new(1, 1, 1)
+label.TextScaled = true
+label.Parent = billboard</code></pre>
+  <p>Если BillboardGui создал <b>сервер</b>, его видят все. Так делают ники и полоски здоровья над врагами.</p>
+
+  <section class="quiz">
+    <h2>🧠 Проверь себя</h2>
+    <div class="q" data-correct="1">
+      <p>Ты положил Script (не LocalScript) в ScreenGui, а кнопка не реагирует. Почему?</p>
+      <ol><li>Нужно использовать MouseButton1Click</li><li>Интерфейсом управляет клиент, нужен LocalScript</li><li>Кнопка выключена</li><li>Нужен RemoteEvent</li></ol>
+      <p class="explain">GUI игрока живёт на клиенте, и обрабатывает его LocalScript.</p>
+    </div>
+    <div class="q" data-correct="3">
+      <p>Что значит <code>UDim2.new(0.5, 0, 0, 100)</code> для Size?</p>
+      <ol><li>50 пикселей в ширину и 100% высоты</li><li>Половина экрана в ширину и в высоту</li><li>0.5 пикселя на 100 пикселей</li><li>Половина ширины родителя, 100 пикселей в высоту</li></ol>
+      <p class="explain">Формат: (scaleX, offsetX, scaleY, offsetY).</p>
+    </div>
+    <div class="q" data-correct="0">
+      <p>Как надпись с монетами узнаёт, что их стало больше?</p>
+      <ol><li>Подписывается на <code>coins.Changed</code></li><li>Сервер меняет текст надписи напрямую</li><li>Нужно проверять в бесконечном цикле</li><li>Через ResetOnSpawn</li></ol>
+      <p class="explain">Changed — самый простой и эффективный способ. Цикл с проверкой — лишняя нагрузка.</p>
+    </div>
+    <div class="q" data-correct="2">
+      <p>Что произойдёт с GUI при смерти, если <code>ResetOnSpawn = true</code>?</p>
+      <ol><li>Ничего</li><li>GUI исчезнет навсегда</li><li>GUI пересоздастся из StarterGui, скрипты внутри перезапустятся</li><li>GUI станет невидимым</li></ol>
+      <p class="explain">Это удобно для HUD, привязанного к персонажу, но мешает открытым окнам.</p>
+    </div>
+  </section>
+
+  <section class="tasks">
+    <h2>📚 Задания</h2>
+    <div class="task">
+      <h3>Задание 1 <span class="level easy">лёгкое</span></h3>
+      <p>Сделай кнопку «Счётчик» и надпись. Каждый клик по кнопке увеличивает число на надписи на 1. (Это чисто клиентский счётчик, сервер не нужен.)</p>
+      <details><summary>✅ Решение</summary>
+        <pre data-where="StarterGui > ScreenGui > LocalScript"><code>local gui = script.Parent
+local button = gui:WaitForChild("CounterButton")
+local label = gui:WaitForChild("CounterLabel")
+local count = 0
+
+button.Activated:Connect(function()
+	count += 1
+	label.Text = `Кликов: {count}`
+end)</code></pre>
+      </details>
+    </div>
+    <div class="task">
+      <h3>Задание 2 <span class="level mid">среднее</span></h3>
+      <p>Сделай всплывающее уведомление: функция <code>notify(text)</code> показывает TextLabel внизу экрана, плавно выдвигает его твином и через 3 секунды убирает обратно. Вызови её при нажатии на <kbd>N</kbd>.</p>
+      <details><summary>✅ Решение</summary>
+        <pre data-where="StarterGui > NotifyGui > LocalScript"><code>local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+
+local label = script.Parent:WaitForChild("Notification")
+label.AnchorPoint = Vector2.new(0.5, 0)
+label.Position = UDim2.fromScale(0.5, 1.1)   -- спрятан под экраном
+
+local shown = UDim2.fromScale(0.5, 0.85)
+local hidden = UDim2.fromScale(0.5, 1.1)
+local info = TweenInfo.new(0.4, Enum.EasingStyle.Back)
+
+local function notify(text)
+	label.Text = text
+	TweenService:Create(label, info, {Position = shown}):Play()
+	task.delay(3, function()
+		TweenService:Create(label, info, {Position = hidden}):Play()
+	end)
+end
+
+UserInputService.InputBegan:Connect(function(input, processed)
+	if not processed and input.KeyCode == Enum.KeyCode.N then
+		notify("Ты нажал N!")
+	end
+end)</code></pre>
+      </details>
+    </div>
+    <div class="task">
+      <h3>Задание 3 <span class="level hard">сложное</span></h3>
+      <p>Сделай над головой каждого игрока табличку с ником и количеством монет из leaderstats, которая обновляется при изменении. Это серверная задача: подумай, почему.</p>
+      <details><summary>✅ Решение</summary>
+        <pre data-where="ServerScriptService > Script «Nametags»"><code>local Players = game:GetService("Players")
+
+local function createTag(player, character)
+	local head = character:WaitForChild("Head")
+	local coins = player:WaitForChild("leaderstats"):WaitForChild("Coins")
+
+	local billboard = Instance.new("BillboardGui")
+	billboard.Size = UDim2.fromOffset(200, 50)
+	billboard.StudsOffset = Vector3.new(0, 2.5, 0)
+	billboard.Parent = head
+
+	local label = Instance.new("TextLabel")
+	label.Size = UDim2.fromScale(1, 1)
+	label.BackgroundTransparency = 1
+	label.TextColor3 = Color3.new(1, 1, 1)
+	label.TextStrokeTransparency = 0
+	label.TextScaled = true
+	label.Parent = billboard
+
+	local function update()
+		label.Text = `{player.Name}\n💰 {coins.Value}`
+	end
+	update()
+	coins.Changed:Connect(update)
+end
+
+Players.PlayerAdded:Connect(function(player)
+	player.CharacterAdded:Connect(function(character)
+		createTag(player, character)
+	end)
+end)</code></pre>
+        <p>Табличку должны видеть все игроки, поэтому её создаёт сервер. Созданная на клиенте была бы видна только одному. Предполагается, что leaderstats с Coins создаёт другой скрипт.</p>
+      </details>
+    </div>
+  </section>
+</article>
+<script src="../js/course.js"></script>
+<script src="../js/app.js"></script>
+</body>
+</html>

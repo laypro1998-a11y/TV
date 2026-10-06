@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Игроки, персонажи и leaderstats</title>
+<link rel="stylesheet" href="../css/style.css">
+</head>
+<body data-lesson="players-characters">
+<article class="lesson">
+  <h1>Игроки, персонажи и leaderstats</h1>
+  <p class="lead">Игрок (Player) и его персонаж (Character) — разные вещи. Научимся реагировать на вход, на появление персонажа и на смерть, а ещё сделаем таблицу очков.</p>
+
+  <div class="goals"><strong>🎯 После урока ты сможешь:</strong>
+    <ul>
+      <li>различать Player и Character;</li>
+      <li>использовать <code>PlayerAdded</code>, <code>CharacterAdded</code>, <code>Died</code>;</li>
+      <li>менять скорость, прыжок и здоровье через Humanoid;</li>
+      <li>сделать leaderstats — таблицу очков справа вверху.</li>
+    </ul>
+  </div>
+
+  <h2>Player и Character</h2>
+  <div class="table-wrap"><table>
+    <tr><th></th><th>Player</th><th>Character</th></tr>
+    <tr><td>Что это</td><td>Аккаунт игрока на сервере: ник, UserId, команда</td><td>3D-модель человечка в мире</td></tr>
+    <tr><td>Где лежит</td><td><code>game.Players</code></td><td><code>workspace</code></td></tr>
+    <tr><td>Сколько живёт</td><td>Пока игрок на сервере</td><td>До смерти. Потом создаётся новый</td></tr>
+    <tr><td>Как связаны</td><td><code>player.Character</code></td><td><code>Players:GetPlayerFromCharacter(character)</code></td></tr>
+  </table></div>
+  <div class="explorer">
+    <div class="ex-title">Explorer (во время игры)</div>
+    <ul>
+      <li class="svc">Players<ul><li class="other">Player1 <span class="cmt">— Player</span>
+        <ul><li class="folder">leaderstats</li><li class="folder">Backpack</li><li class="folder">PlayerGui</li><li class="folder">PlayerScripts</li></ul></li></ul></li>
+      <li class="svc">Workspace<ul><li class="model">Player1 <span class="cmt">— Character</span>
+        <ul><li class="other">Humanoid</li><li class="part">HumanoidRootPart</li><li class="part">Head</li><li class="part">UpperTorso ...</li></ul></li></ul></li>
+    </ul>
+  </div>
+
+  <h2>Вход и выход игроков</h2>
+  <pre data-where="ServerScriptService > Script «PlayerEvents»"><code>local Players = game:GetService("Players")
+
+Players.PlayerAdded:Connect(function(player)
+	print(`{player.Name} зашёл (UserId: {player.UserId})`)
+end)
+
+Players.PlayerRemoving:Connect(function(player)
+	print(`{player.Name} вышел`)
+end)
+
+print("Сейчас игроков:", #Players:GetPlayers())</code></pre>
+  <div class="note warn"><p>Ник игрока можно поменять за Robux, а <b>UserId не меняется никогда</b>. Для сохранений, банов и списков админов всегда используй <code>player.UserId</code>.</p></div>
+
+  <h2>Появление персонажа</h2>
+  <p>Персонаж создаётся заново после каждой смерти. Поэтому код вида «дать персонажу ауру» нужно запускать при <b>каждом</b> появлении:</p>
+  <pre data-where="ServerScriptService > Script «CharacterSetup»"><code>local Players = game:GetService("Players")
+
+local function onCharacterAdded(character)
+	local humanoid = character:WaitForChild("Humanoid")
+
+	humanoid.WalkSpeed = 24      -- обычная скорость 16
+	humanoid.JumpPower = 60      -- обычная сила прыжка 50
+	humanoid.MaxHealth = 150
+	humanoid.Health = 150
+
+	humanoid.Died:Connect(function()
+		print(character.Name, "погиб")
+	end)
+end
+
+Players.PlayerAdded:Connect(function(player)
+	player.CharacterAdded:Connect(onCharacterAdded)
+end)</code></pre>
+  <div class="note info"><p>Если JumpPower не меняется, проверь в <b>StarterPlayer</b> свойство <code>CharacterUseJumpPower</code>. Если оно выключено, используется <code>JumpHeight</code>.</p></div>
+
+  <h3>Свойства Humanoid</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Свойство / метод</th><th>Что делает</th></tr>
+    <tr><td><code>Health</code>, <code>MaxHealth</code></td><td>Текущее и максимальное здоровье</td></tr>
+    <tr><td><code>WalkSpeed</code></td><td>Скорость ходьбы (по умолчанию 16)</td></tr>
+    <tr><td><code>JumpPower</code> / <code>JumpHeight</code></td><td>Сила прыжка</td></tr>
+    <tr><td><code>:TakeDamage(n)</code></td><td>Нанести урон (учитывает ForceField, в отличие от Health -= n)</td></tr>
+    <tr><td><code>:MoveTo(позиция)</code></td><td>Заставить идти к точке (для NPC)</td></tr>
+    <tr><td><code>Died</code></td><td>Событие смерти</td></tr>
+    <tr><td><code>HealthChanged</code></td><td>Событие: здоровье изменилось</td></tr>
+  </table></div>
+
+  <h2>leaderstats — таблица очков</h2>
+  <p>Если внутри Player создать папку с именем <b>ровно</b> <code>leaderstats</code> и положить в неё значения (IntValue, NumberValue, StringValue), Roblox сам покажет их в таблице справа сверху.</p>
+  <pre data-where="ServerScriptService > Script «Leaderstats»"><code>local Players = game:GetService("Players")
+
+Players.PlayerAdded:Connect(function(player)
+	local leaderstats = Instance.new("Folder")
+	leaderstats.Name = "leaderstats"     -- имя важно, с маленькой буквы!
+	leaderstats.Parent = player
+
+	local coins = Instance.new("IntValue")
+	coins.Name = "Coins"
+	coins.Value = 0
+	coins.Parent = leaderstats
+
+	local kills = Instance.new("IntValue")
+	kills.Name = "Kills"
+	kills.Value = 0
+	kills.Parent = leaderstats
+end)</code></pre>
+  <p>Теперь любой серверный скрипт может менять очки:</p>
+  <pre data-where="Workspace > Coin (Part) > Script"><code>local Players = game:GetService("Players")
+local coin = script.Parent
+local collected = false
+
+coin.Touched:Connect(function(otherPart)
+	if collected then return end
+	local player = Players:GetPlayerFromCharacter(otherPart.Parent)
+	if not player then return end
+
+	collected = true
+	player.leaderstats.Coins.Value += 1
+	coin:Destroy()
+end)</code></pre>
+  <div class="note danger"><p>leaderstats меняй <b>только на сервере</b>. Если поменять Value в LocalScript, игрок увидит у себя 1 000 000, но на сервере и у остальных ничего не изменится.</p></div>
+
+  <h2>Персонаж уже мог появиться</h2>
+  <p>В Studio скрипт иногда запускается <b>позже</b>, чем зашёл первый игрок, и тогда PlayerAdded для него не сработает. Надёжный шаблон, который стоит запомнить:</p>
+  <pre data-where="ServerScriptService > Script"><code>local Players = game:GetService("Players")
+
+local function onCharacterAdded(character)
+	print("Персонаж появился:", character.Name)
+end
+
+local function onPlayerAdded(player)
+	player.CharacterAdded:Connect(onCharacterAdded)
+	if player.Character then                -- персонаж уже есть
+		onCharacterAdded(player.Character)
+	end
+end
+
+Players.PlayerAdded:Connect(onPlayerAdded)
+for _, player in Players:GetPlayers() do   -- игроки, которые уже зашли
+	task.spawn(onPlayerAdded, player)
+end</code></pre>
+
+  <h2>Команды (Teams)</h2>
+  <pre data-where="ServerScriptService > Script"><code>local Teams = game:GetService("Teams")
+local Players = game:GetService("Players")
+
+local red = Instance.new("Team")
+red.Name = "Красные"
+red.TeamColor = BrickColor.new("Really red")
+red.AutoAssignable = true
+red.Parent = Teams
+
+local blue = Instance.new("Team")
+blue.Name = "Синие"
+blue.TeamColor = BrickColor.new("Really blue")
+blue.AutoAssignable = true
+blue.Parent = Teams
+
+Players.PlayerAdded:Connect(function(player)
+	task.wait(1)
+	print(player.Name, "в команде", player.Team and player.Team.Name)
+end)</code></pre>
+
+  <section class="quiz">
+    <h2>🧠 Проверь себя</h2>
+    <div class="q" data-correct="1">
+      <p>Игрок умер и возродился. Что из этого создалось заново?</p>
+      <ol><li>Player</li><li>Character</li><li>leaderstats</li><li>Всё сразу</li></ol>
+      <p class="explain">Player живёт всю сессию, а Character пересоздаётся при каждом возрождении.</p>
+    </div>
+    <div class="q" data-correct="3">
+      <p>Как должна называться папка, чтобы очки показывались в таблице?</p>
+      <ol><li>Leaderstats</li><li>leaderboard</li><li>stats</li><li>leaderstats</li></ol>
+      <p class="explain">Строго <code>leaderstats</code>, с маленькой буквы.</p>
+    </div>
+    <div class="q" data-correct="0">
+      <p>Что использовать как ключ для сохранения данных игрока?</p>
+      <ol><li>player.UserId</li><li>player.Name</li><li>player.DisplayName</li><li>player.Character</li></ol>
+      <p class="explain">UserId никогда не меняется. Ник и отображаемое имя могут меняться.</p>
+    </div>
+    <div class="q" data-correct="2">
+      <p>Зачем подписываться на <code>CharacterAdded</code>, а не просто настроить персонажа в PlayerAdded?</p>
+      <ol><li>PlayerAdded не работает на сервере</li><li>Так быстрее</li><li>После смерти появится новый персонаж, и настройки пропадут</li><li>Character недоступен на сервере</li></ol>
+      <p class="explain">Новый персонаж создаётся с настройками по умолчанию, поэтому их надо применять каждый раз.</p>
+    </div>
+  </section>
+
+  <section class="tasks">
+    <h2>📚 Задания</h2>
+    <div class="task">
+      <h3>Задание 1 <span class="level easy">лёгкое</span></h3>
+      <p>Сделай leaderstats со статой <code>Deaths</code>, которая увеличивается при каждой смерти игрока.</p>
+      <details><summary>✅ Решение</summary>
+        <pre data-where="ServerScriptService > Script"><code>local Players = game:GetService("Players")
+
+Players.PlayerAdded:Connect(function(player)
+	local leaderstats = Instance.new("Folder")
+	leaderstats.Name = "leaderstats"
+	leaderstats.Parent = player
+
+	local deaths = Instance.new("IntValue")
+	deaths.Name = "Deaths"
+	deaths.Parent = leaderstats
+
+	player.CharacterAdded:Connect(function(character)
+		local humanoid = character:WaitForChild("Humanoid")
+		humanoid.Died:Connect(function()
+			deaths.Value += 1
+		end)
+	end)
+end)</code></pre>
+      </details>
+    </div>
+    <div class="task">
+      <h3>Задание 2 <span class="level mid">среднее</span></h3>
+      <p>Сделай «ускоритель»: деталь <code>SpeedPad</code>. Когда игрок на неё наступает, его скорость становится 50 на 5 секунд, потом возвращается к 16. Debounce для каждого игрока.</p>
+      <details><summary>✅ Решение</summary>
+        <pre data-where="Workspace > SpeedPad (Part) > Script"><code>local Players = game:GetService("Players")
+local pad = script.Parent
+local boosted = {}
+
+pad.Touched:Connect(function(otherPart)
+	local character = otherPart.Parent
+	local player = Players:GetPlayerFromCharacter(character)
+	if not player or boosted[player] then return end
+
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	if not humanoid then return end
+
+	boosted[player] = true
+	humanoid.WalkSpeed = 50
+	task.wait(5)
+	if humanoid.Parent then          -- персонаж мог умереть за это время
+		humanoid.WalkSpeed = 16
+	end
+	boosted[player] = nil
+end)</code></pre>
+      </details>
+    </div>
+    <div class="task">
+      <h3>Задание 3 <span class="level hard">сложное</span></h3>
+      <p>Сделай систему «киллов»: если игрок умер, а последним его ударил другой игрок, у того +1 Kills. Подсказка: в оружии при ударе ставят на Humanoid жертвы ObjectValue с именем <code>creator</code> и Value = игрок-атакующий. Напиши серверную часть, которая читает creator в момент смерти. Для проверки создай creator вручную кодом.</p>
+      <details><summary>✅ Решение</summary>
+        <pre data-where="ServerScriptService > Script «KillTracker»"><code>local Players = game:GetService("Players")
+
+Players.PlayerAdded:Connect(function(player)
+	local leaderstats = Instance.new("Folder")
+	leaderstats.Name = "leaderstats"
+	leaderstats.Parent = player
+
+	local kills = Instance.new("IntValue")
+	kills.Name = "Kills"
+	kills.Parent = leaderstats
+
+	player.CharacterAdded:Connect(function(character)
+		local humanoid = character:WaitForChild("Humanoid")
+		humanoid.Died:Connect(function()
+			local tag = humanoid:FindFirstChild("creator")
+			if tag and tag.Value and tag.Value ~= player then
+				local killer = tag.Value
+				local stats = killer:FindFirstChild("leaderstats")
+				if stats then
+					stats.Kills.Value += 1
+				end
+			end
+		end)
+	end)
+end)
+
+-- Как оружие «помечает» жертву (используется в проекте PvP):
+-- local tag = Instance.new("ObjectValue")
+-- tag.Name = "creator"
+-- tag.Value = attackerPlayer
+-- tag.Parent = victimHumanoid
+-- game:GetService("Debris"):AddItem(tag, 5)</code></pre>
+      </details>
+    </div>
+  </section>
+</article>
+<script src="../js/course.js"></script>
+<script src="../js/app.js"></script>
+</body>
+</html>

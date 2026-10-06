@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Script, LocalScript, ModuleScript</title>
+<link rel="stylesheet" href="../css/style.css">
+</head>
+<body data-lesson="script-types">
+<article class="lesson">
+  <h1>Script, LocalScript, ModuleScript: куда что класть</h1>
+  <p class="lead">Самый важный урок для начинающего разработчика на Roblox. Большинство вопросов «почему мой скрипт не работает?» решаются здесь.</p>
+
+  <div class="goals"><strong>🎯 После урока ты сможешь:</strong>
+    <ul>
+      <li>объяснить, что такое сервер и клиент;</li>
+      <li>выбрать правильный тип скрипта для задачи;</li>
+      <li>положить скрипт туда, где он точно запустится.</li>
+    </ul>
+  </div>
+
+  <h2>Сервер и клиенты</h2>
+  <p>Когда ты играешь в Roblox, игра работает сразу в нескольких местах:</p>
+  <ul>
+    <li><b>Сервер</b> — компьютер Roblox, на котором идёт «настоящая» игра. Он один на всех игроков. Он решает, сколько у кого денег, кто кого победил, что сохранить.</li>
+    <li><b>Клиент</b> — компьютер или телефон каждого игрока. Клиент рисует картинку, принимает нажатия клавиш, показывает интерфейс. Сколько игроков, столько клиентов.</li>
+  </ul>
+  <p>Представь футбольный матч: <b>сервер — судья</b>, а <b>клиенты — игроки</b>. Игрок может крикнуть «гол!», но засчитывает гол только судья. Если игроку позволить самому решать, сколько у него голов, начнётся читерство.</p>
+
+  <h2>Три типа скриптов</h2>
+  <h3>📜 Script — серверный скрипт</h3>
+  <p>Выполняется <b>на сервере</b>. Всё, что он меняет в мире (детали, значения, здоровье), видят все игроки. Здесь пишут правила игры: начисление монет, урон, сохранение, спавн предметов.</p>
+
+  <h3>🖥️ LocalScript — клиентский скрипт</h3>
+  <p>Выполняется <b>на устройстве конкретного игрока</b>. У каждого игрока работает своя копия. Он умеет то, чего не умеет сервер: узнать нажатую клавишу, двигать камеру, показывать интерфейс. Изменения в мире из LocalScript видит <b>только этот игрок</b>.</p>
+
+  <h3>📦 ModuleScript — модуль</h3>
+  <p>Сам по себе <b>не запускается</b>. Это «библиотека»: в нём лежат функции и данные, а другие скрипты подключают его через <code>require</code>. Если модуль подключил Script, модуль работает на сервере. Если LocalScript, то на клиенте. Подробно разберём в уроке про модули.</p>
+
+  <div class="table-wrap"><table>
+    <tr><th></th><th>Script</th><th>LocalScript</th><th>ModuleScript</th></tr>
+    <tr><td>Где работает</td><td>Сервер</td><td>Клиент игрока</td><td>Там, где его подключили</td></tr>
+    <tr><td>Запускается сам</td><td class="yes">Да</td><td class="yes">Да</td><td class="no">Нет, только через require</td></tr>
+    <tr><td>Видит нажатия клавиш</td><td class="no">Нет</td><td class="yes">Да</td><td>—</td></tr>
+    <tr><td>Может давать монеты честно</td><td class="yes">Да</td><td class="no">Нет</td><td>—</td></tr>
+    <tr><td>Есть <code>Players.LocalPlayer</code></td><td class="no">Нет</td><td class="yes">Да</td><td>—</td></tr>
+  </table></div>
+
+  <h2>Где скрипты запускаются</h2>
+  <p>Скрипт запускается, только если лежит в правильном месте. Запомни главное:</p>
+  <div class="table-wrap"><table>
+    <tr><th>Куда положить</th><th>Что туда подходит</th></tr>
+    <tr><td>⚙️ <b>ServerScriptService</b></td><td>📜 Script. Основное место для серверного кода. Клиенты не видят содержимое этого сервиса, поэтому код здесь в безопасности.</td></tr>
+    <tr><td>⚙️ <b>StarterPlayer › StarterPlayerScripts</b></td><td>🖥️ LocalScript. Запускается один раз, когда игрок заходит. Для управления, камеры, клиентских систем.</td></tr>
+    <tr><td>⚙️ <b>StarterPlayer › StarterCharacterScripts</b></td><td>🖥️ LocalScript или 📜 Script. Копируется <b>в персонажа</b> при каждом возрождении. Для всего, что связано с телом: бег, двойной прыжок, эффекты.</td></tr>
+    <tr><td>⚙️ <b>StarterGui</b></td><td>🖥️ LocalScript внутри ScreenGui. Логика интерфейса: кнопки, надписи, меню.</td></tr>
+    <tr><td>⚙️ <b>ReplicatedStorage</b></td><td>📦 ModuleScript, нужные и серверу, и клиенту, а также RemoteEvent. Обычные скрипты здесь <b>не запускаются</b>.</td></tr>
+    <tr><td>⚙️ <b>ServerStorage</b></td><td>📦 ModuleScript только для сервера и шаблоны предметов. Скрипты здесь <b>не запускаются</b>, клиенту не видно.</td></tr>
+    <tr><td>⚙️ <b>Workspace</b></td><td>📜 Script внутри детали работает (например, лава). LocalScript здесь <b>не работает</b>.</td></tr>
+  </table></div>
+
+  <div class="note danger"><p><b>Ошибка №1 у новичков:</b> LocalScript в Workspace или ServerScriptService. Он там просто молчит: ни ошибки, ни результата. Если LocalScript «ничего не делает», первым делом проверь, где он лежит.</p></div>
+
+  <h2>Проверяем на практике</h2>
+  <p>Сделаем два скрипта и посмотрим, кто где работает.</p>
+  <div class="explorer">
+    <div class="ex-title">Explorer</div>
+    <ul>
+      <li class="svc">ServerScriptService<ul><li class="script"><span class="hl">ServerHello</span></li></ul></li>
+      <li class="svc">StarterPlayer
+        <ul><li class="folder">StarterPlayerScripts<ul><li class="local"><span class="hl">ClientHello</span></li></ul></li></ul>
+      </li>
+    </ul>
+  </div>
+  <pre data-where="ServerScriptService > Script «ServerHello»"><code>print("Я сервер! Я запускаюсь один раз, когда стартует сервер.")</code></pre>
+  <pre data-where="StarterPlayer > StarterPlayerScripts > LocalScript «ClientHello»"><code>local Players = game:GetService("Players")
+local player = Players.LocalPlayer -- работает только в LocalScript!
+
+print("Я клиент игрока " .. player.Name)</code></pre>
+  <p>Нажми Play. В Output у каждой строки видна пометка, откуда она пришла: <b>Server</b> или <b>Client</b>. Во время Play на вкладке <b>Test</b> есть переключатель <b>Client / Server</b>: им можно посмотреть на мир глазами сервера или игрока.</p>
+  <pre class="output"><code>Я сервер! Я запускаюсь один раз, когда стартует сервер.  -  Server - ServerHello:1
+Я клиент игрока Player1  -  Client - ClientHello:4</code></pre>
+
+  <h3>Тест на нескольких игроках</h3>
+  <p>На вкладке <b>Test</b> есть режим <b>Clients and Servers</b>: выбери 2 игрока и нажми Start. Откроются три окна: сервер и два клиента. Серверное сообщение будет одно, а клиентских два, по одному у каждого игрока. Так выглядит настоящая игра.</p>
+
+  <h2>Видимость: что меняет LocalScript</h2>
+  <p>Положи деталь <code>Door</code> в Workspace и напиши такой LocalScript:</p>
+  <pre data-where="StarterPlayerScripts > LocalScript"><code>local door = workspace:WaitForChild("Door")
+door.Transparency = 1
+door.CanCollide = false
+print("Дверь открыта... но только для меня")</code></pre>
+  <p>Запусти тест на двух игроках. У первого дверь исчезнет и он пройдёт сквозь неё, а у второго дверь останется на месте. Изменения из LocalScript <b>не передаются</b> на сервер и другим игрокам.</p>
+  <p>Это удобно для личных эффектов: подсветить предмет, который нужен именно этому игроку, или сделать обучающие стрелки. Но <b>монеты, здоровье и прочие «честные» вещи меняет только сервер</b>.</p>
+  <div class="note info"><p><code>WaitForChild("Door")</code> означает «подожди, пока объект Door загрузится». Клиенту объекты приходят по сети не мгновенно, поэтому в LocalScript лучше всегда использовать WaitForChild. Подробнее разберём в уроке про объекты.</p></div>
+
+  <h2>Как выбрать тип скрипта</h2>
+  <ol>
+    <li>Нужно знать, какую клавишу нажал игрок, что он видит на экране, куда смотрит камера? → <b>LocalScript</b>.</li>
+    <li>Это влияет на других игроков, на деньги, на победу, на сохранения? → <b>Script</b>.</li>
+    <li>Этот код нужен в нескольких скриптах сразу? → вынеси в <b>ModuleScript</b>.</li>
+    <li>Нужно и то, и другое (кнопка «Купить» → списать монеты)? → LocalScript ловит нажатие и <b>просит</b> сервер через RemoteEvent, а Script проверяет и списывает. Этому посвящён отдельный урок.</li>
+  </ol>
+
+  <div class="note tip"><p>Пример распределения на кнопке «Купить меч»: нажатие кнопки ловит <b>LocalScript</b> в StarterGui, проверка денег и выдача меча идут в <b>Script</b> в ServerScriptService, цена меча хранится в <b>ModuleScript</b> в ReplicatedStorage (её используют оба: клиент показывает, сервер проверяет).</p></div>
+
+  <section class="quiz">
+    <h2>🧠 Проверь себя</h2>
+    <div class="q" data-correct="1">
+      <p>Ты положил LocalScript в ServerScriptService. Что произойдёт?</p>
+      <ol><li>Он выполнится на сервере</li><li>Он не выполнится вообще</li><li>Он выполнится у всех игроков</li><li>Studio покажет ошибку</li></ol>
+      <p class="explain">LocalScript работает только в местах, принадлежащих игроку: StarterPlayerScripts, StarterCharacterScripts, StarterGui, Backpack, ReplicatedFirst. В ServerScriptService он молчит.</p>
+    </div>
+    <div class="q" data-correct="2">
+      <p>Какой скрипт должен начислять монеты за победу?</p>
+      <ol><li>LocalScript в StarterGui</li><li>LocalScript в StarterPlayerScripts</li><li>Script в ServerScriptService</li><li>ModuleScript в ReplicatedStorage сам по себе</li></ol>
+      <p class="explain">Деньги — «честная» информация, ими занимается сервер. Если доверить это клиенту, читер нарисует себе миллион.</p>
+    </div>
+    <div class="q" data-correct="0">
+      <p>LocalScript покрасил стену в красный. Кто это увидит?</p>
+      <ol><li>Только этот игрок</li><li>Все игроки</li><li>Только сервер</li><li>Никто</li></ol>
+      <p class="explain">Изменения на клиенте остаются на клиенте.</p>
+    </div>
+    <div class="q" data-correct="3">
+      <p>Где хранить ModuleScript с ценами, которые нужны и интерфейсу магазина, и серверу?</p>
+      <ol><li>ServerScriptService</li><li>ServerStorage</li><li>StarterGui</li><li>ReplicatedStorage</li></ol>
+      <p class="explain">ReplicatedStorage видят и сервер, и клиенты. Клиенту недоступны ServerScriptService и ServerStorage.</p>
+    </div>
+    <div class="q" data-correct="1">
+      <p>Нужен скрипт, который при каждом возрождении даёт персонажу частицы-ауру. Куда его класть?</p>
+      <ol><li>StarterPlayerScripts</li><li>StarterCharacterScripts</li><li>ReplicatedStorage</li><li>Lighting</li></ol>
+      <p class="explain">Содержимое StarterCharacterScripts копируется в нового персонажа при каждом спавне. Скрипт в StarterPlayerScripts запустится только один раз за сессию.</p>
+    </div>
+  </section>
+
+  <section class="tasks">
+    <h2>📚 Задания</h2>
+    <div class="task">
+      <h3>Задание 1 <span class="level easy">лёгкое</span></h3>
+      <p>Определи тип скрипта и место для каждой задачи:</p>
+      <ol type="a">
+        <li>При нажатии <kbd>Shift</kbd> персонаж бежит быстрее.</li>
+        <li>Каждые 60 секунд на карте появляется сундук.</li>
+        <li>Таблица с характеристиками всех мечей.</li>
+        <li>Кнопка «Настройки» открывает меню.</li>
+        <li>Лава убивает игрока, который на неё наступил.</li>
+      </ol>
+      <details><summary>✅ Ответ</summary>
+        <ol type="a">
+          <li>LocalScript в <b>StarterCharacterScripts</b>: нужна клавиша и персонаж. Скорость бега, кстати, сервер принимает от клиента. Это особенность персонажа, разберём позже.</li>
+          <li>Script в <b>ServerScriptService</b>: сундук должны видеть все.</li>
+          <li>ModuleScript в <b>ReplicatedStorage</b>, если характеристики нужны и интерфейсу, или в <b>ServerStorage</b>, если только серверу.</li>
+          <li>LocalScript внутри ScreenGui в <b>StarterGui</b>.</li>
+          <li>Script внутри детали лавы в Workspace (или один Script в ServerScriptService для всех лав сразу).</li>
+        </ol>
+      </details>
+    </div>
+    <div class="task">
+      <h3>Задание 2 <span class="level easy">лёгкое</span></h3>
+      <p>Создай LocalScript в StarterPlayerScripts, который выводит: <code>Привет, &lt;ник&gt;! Добро пожаловать.</code> Потом перенеси его в ServerScriptService, запусти и объясни, что изменилось.</p>
+      <details><summary>✅ Решение</summary>
+        <pre data-where="StarterPlayer > StarterPlayerScripts > LocalScript"><code>local player = game:GetService("Players").LocalPlayer
+print("Привет, " .. player.Name .. "! Добро пожаловать.")</code></pre>
+        <p>В ServerScriptService LocalScript не запустится, и в Output будет пусто.</p>
+      </details>
+    </div>
+    <div class="task">
+      <h3>Задание 3 <span class="level mid">среднее</span></h3>
+      <p>Сделай «секретную дверь»: деталь <code>SecretDoor</code>, которую LocalScript делает невидимой и проходимой. Проверь в режиме <b>2 игрока</b>, что дверь исчезла у обоих (у каждого работает своя копия LocalScript). Подумай, почему так вышло, хотя изменения на клиенте «не передаются».</p>
+      <details><summary>✅ Ответ</summary>
+        <pre data-where="StarterPlayerScripts > LocalScript"><code>local door = workspace:WaitForChild("SecretDoor")
+door.Transparency = 1
+door.CanCollide = false</code></pre>
+        <p>Скрипт в StarterPlayerScripts получает <b>каждый</b> игрок, и у каждого он сам открывает дверь в своей копии мира. Сервер при этом считает, что дверь закрыта. Чтобы дверь открывалась только для избранных, нужно условие, например проверка ника или наличия ключа.</p>
+      </details>
+    </div>
+  </section>
+</article>
+<script src="../js/course.js"></script>
+<script src="../js/app.js"></script>
+</body>
+</html>

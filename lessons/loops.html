@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Циклы: for, while, repeat</title>
+<link rel="stylesheet" href="../css/style.css">
+</head>
+<body data-lesson="loops">
+<article class="lesson">
+  <h1>Циклы: for, while, repeat</h1>
+  <p class="lead">Отсчёт перед раундом, спавн десяти монет, проверка каждого игрока — всё, что нужно повторить, делается циклом.</p>
+
+  <div class="goals"><strong>🎯 После урока ты сможешь:</strong>
+    <ul>
+      <li>использовать числовой <code>for</code>, <code>while</code> и <code>repeat</code>;</li>
+      <li>управлять циклом через <code>break</code> и <code>continue</code>;</li>
+      <li>делать паузы через <code>task.wait</code> и не «вешать» игру.</li>
+    </ul>
+  </div>
+
+  <h2>Числовой for</h2>
+  <pre data-where="ServerScriptService > Script"><code>for i = 1, 5 do
+	print("Шаг", i)
+end</code></pre>
+  <pre class="output"><code>Шаг 1
+Шаг 2
+Шаг 3
+Шаг 4
+Шаг 5</code></pre>
+  <p><code>i</code> — счётчик. Он начинается с 1, растёт на 1 и останавливается на 5 (включительно). Можно задать третий параметр — <b>шаг</b>:</p>
+  <pre data-where="ServerScriptService > Script"><code>for i = 0, 100, 25 do   -- 0, 25, 50, 75, 100
+	print(i)
+end
+
+for i = 10, 1, -1 do    -- обратный отсчёт: 10, 9, ... 1
+	print(i)
+end</code></pre>
+
+  <h3>Пауза: task.wait</h3>
+  <p>Компьютер выполняет цикл за доли секунды. Чтобы сделать настоящий отсчёт, нужна пауза:</p>
+  <pre data-where="ServerScriptService > Script «Countdown»"><code>for i = 10, 1, -1 do
+	print("Раунд начнётся через", i)
+	task.wait(1)  -- ждём 1 секунду
+end
+print("СТАРТ!")</code></pre>
+  <div class="note info"><p>В старых туториалах пишут просто <code>wait(1)</code>. Это устаревшая функция: она менее точная. Используй <code>task.wait</code>.</p></div>
+
+  <h3>Цикл, который строит</h3>
+  <p>Циклы часто создают объекты. Построим лестницу из 10 ступенек (про <code>Instance.new</code> подробно расскажем в модуле про игровой мир):</p>
+  <pre data-where="ServerScriptService > Script «Stairs»"><code>for i = 1, 10 do
+	local step = Instance.new("Part")
+	step.Size = Vector3.new(6, 1, 3)
+	step.Position = Vector3.new(0, i * 1, i * 3)  -- каждая следующая выше и дальше
+	step.Anchored = true
+	step.BrickColor = BrickColor.random()
+	step.Parent = workspace
+end</code></pre>
+  <p>Нажми Play, и перед тобой лестница. Поменяй 10 на 50, и она станет гораздо длиннее. В этом сила циклов.</p>
+
+  <h2>while — пока условие верно</h2>
+  <pre data-where="ServerScriptService > Script"><code>local health = 100
+
+while health > 0 do
+	health -= 30
+	print("Урон! Здоровье:", health)
+end
+print("Игрок побеждён")</code></pre>
+
+  <h3>Бесконечный цикл игры</h3>
+  <p>Многие игры устроены как «вечный» цикл: лобби → раунд → итоги → снова. Это <code>while true do</code>:</p>
+  <pre data-where="ServerScriptService > Script «GameLoop»"><code>while true do
+	print("Лобби: ждём игроков...")
+	task.wait(10)
+
+	print("Раунд начался!")
+	task.wait(30)
+
+	print("Раунд окончен")
+	task.wait(5)
+end</code></pre>
+  <div class="note danger"><p><b>В бесконечном цикле обязательно должен быть <code>task.wait</code>!</b> Без паузы цикл займёт процессор целиком, игра зависнет, и Studio выдаст ошибку <code>Script timeout: exhausted allowed execution time</code>.</p></div>
+
+  <h2>repeat ... until</h2>
+  <p>Как while, но условие проверяется <b>в конце</b>, поэтому тело выполнится хотя бы один раз. Цикл крутится, <b>пока условие не станет верным</b>.</p>
+  <pre data-where="ServerScriptService > Script"><code>local roll
+repeat
+	roll = math.random(1, 6)
+	print("Выпало", roll)
+until roll == 6
+print("Шестёрка!")</code></pre>
+
+  <h2>break и continue</h2>
+  <ul>
+    <li><code>break</code> — немедленно выйти из цикла;</li>
+    <li><code>continue</code> — пропустить остаток текущего шага и перейти к следующему (есть в Luau, в обычном Lua нет).</li>
+  </ul>
+  <pre data-where="ServerScriptService > Script"><code>for i = 1, 10 do
+	if i % 2 == 0 then
+		continue      -- чётные пропускаем
+	end
+	if i > 7 then
+		break         -- после 7 выходим совсем
+	end
+	print(i)          --> 1, 3, 5, 7
+end</code></pre>
+
+  <h2>А как перебрать объекты?</h2>
+  <p>Есть ещё один вид for — для перебора таблиц и списков объектов. Например, всех игроков или всех деталей в папке. Его разберём в уроке про таблицы, а пока посмотри, как он выглядит:</p>
+  <pre data-where="ServerScriptService > Script"><code>for _, part in workspace:GetChildren() do
+	print(part.Name)
+end</code></pre>
+
+  <section class="quiz">
+    <h2>🧠 Проверь себя</h2>
+    <div class="q" data-correct="2">
+      <p>Сколько раз выполнится <code>for i = 2, 10, 2 do</code>?</p>
+      <ol><li>10</li><li>4</li><li>5</li><li>9</li></ol>
+      <p class="explain">2, 4, 6, 8, 10 — пять раз.</p>
+    </div>
+    <div class="q" data-correct="0">
+      <p>Что будет с <code>while true do print("hi") end</code>?</p>
+      <ol><li>Игра зависнет: нет паузы</li><li>Выведет hi один раз</li><li>Выведет hi раз в секунду</li><li>Ошибка синтаксиса</li></ol>
+      <p class="explain">Без <code>task.wait()</code> бесконечный цикл не даёт игре работать.</p>
+    </div>
+    <div class="q" data-correct="3">
+      <p>Чем <code>repeat ... until</code> отличается от <code>while</code>?</p>
+      <ol><li>Ничем</li><li>repeat не может быть бесконечным</li><li>repeat работает только с числами</li><li>Тело repeat выполняется минимум один раз</li></ol>
+      <p class="explain">Условие проверяется после тела цикла.</p>
+    </div>
+    <div class="q" data-correct="1">
+      <p>Что делает <code>continue</code>?</p>
+      <ol><li>Завершает цикл</li><li>Переходит к следующему шагу цикла</li><li>Ставит цикл на паузу</li><li>Перезапускает цикл с начала</li></ol>
+      <p class="explain">continue пропускает остаток текущей итерации.</p>
+    </div>
+  </section>
+
+  <section class="tasks">
+    <h2>📚 Задания</h2>
+    <div class="task">
+      <h3>Задание 1 <span class="level easy">лёгкое</span></h3>
+      <p>Выведи таблицу умножения на 7: <code>7 x 1 = 7</code> … <code>7 x 10 = 70</code>.</p>
+      <details><summary>✅ Решение</summary>
+        <pre data-where="ServerScriptService > Script"><code>for i = 1, 10 do
+	print(`7 x {i} = {7 * i}`)
+end</code></pre>
+      </details>
+    </div>
+    <div class="task">
+      <h3>Задание 2 <span class="level mid">среднее</span></h3>
+      <p>Построй из деталей «башню»: 15 кубиков 4×4×4, стоящих друг на друге. Каждый следующий кубик немного прозрачнее предыдущего.</p>
+      <details><summary>💡 Подсказка</summary><p>Высота кубика 4, значит Y центра i-го кубика = <code>i * 4 - 2</code>. Прозрачность можно считать как <code>i / 20</code>.</p></details>
+      <details><summary>✅ Решение</summary>
+        <pre data-where="ServerScriptService > Script"><code>for i = 1, 15 do
+	local block = Instance.new("Part")
+	block.Size = Vector3.new(4, 4, 4)
+	block.Position = Vector3.new(20, i * 4 - 2, 0)
+	block.Transparency = i / 20
+	block.Anchored = true
+	block.Parent = workspace
+end</code></pre>
+      </details>
+    </div>
+    <div class="task">
+      <h3>Задание 3 <span class="level hard">сложное</span></h3>
+      <p>Сделай «мигающую» деталь <code>Beacon</code>: каждые 0.5 секунды она переключается между Neon-красной и обычной серой. Мигание бесконечное. После этого добавь счётчик: через 20 переключений цикл останавливается через <code>break</code>.</p>
+      <details><summary>✅ Решение</summary>
+        <pre data-where="ServerScriptService > Script"><code>local beacon = workspace:WaitForChild("Beacon")
+local isOn = false
+local switches = 0
+
+while true do
+	isOn = not isOn
+	if isOn then
+		beacon.Material = Enum.Material.Neon
+		beacon.BrickColor = BrickColor.new("Really red")
+	else
+		beacon.Material = Enum.Material.Plastic
+		beacon.BrickColor = BrickColor.new("Medium stone grey")
+	end
+
+	switches += 1
+	if switches >= 20 then
+		break
+	end
+	task.wait(0.5)
+end
+print("Маяк выключен")</code></pre>
+      </details>
+    </div>
+  </section>
+</article>
+<script src="../js/course.js"></script>
+<script src="../js/app.js"></script>
+</body>
+</html>

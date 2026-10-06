@@ -1,0 +1,319 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Метатаблицы и ООП</title>
+<link rel="stylesheet" href="../css/style.css">
+</head>
+<body data-lesson="oop">
+<article class="lesson">
+  <h1>Метатаблицы и ООП</h1>
+  <p class="lead">Когда в игре 50 мобов, 20 видов оружия и 10 питомцев, удобно описать «чертёж» один раз и создавать по нему объекты. Это объектно-ориентированное программирование (ООП). В Luau оно строится на метатаблицах.</p>
+
+  <div class="goals"><strong>🎯 После урока ты сможешь:</strong>
+    <ul>
+      <li>понимать, что такое метатаблица и <code>__index</code>;</li>
+      <li>писать классы в ModuleScript: конструктор <code>new</code> и методы;</li>
+      <li>понимать разницу между <code>.</code> и <code>:</code> на своих объектах;</li>
+      <li>делать наследование.</li>
+    </ul>
+  </div>
+
+  <h2>Метатаблицы: «запасной план» таблицы</h2>
+  <p>Метатаблица — это таблица, которая задаёт <b>особое поведение</b> другой таблице. Самое важное поле — <code>__index</code>: «если ключа нет в таблице, поищи его вот здесь».</p>
+  <pre data-where="ServerScriptService > Script"><code>local defaults = {health = 100, speed = 16}
+local stats = {health = 75}
+
+setmetatable(stats, {__index = defaults})
+
+print(stats.health)  --> 75   (есть в самой таблице)
+print(stats.speed)   --> 16   (нет в stats → взяли из defaults)
+print(stats.armor)   --> nil  (нет нигде)</code></pre>
+  <p>Есть и другие «метаметоды»: <code>__add</code> (поведение для <code>+</code>), <code>__eq</code> (<code>==</code>), <code>__tostring</code> (вывод через print), <code>__newindex</code> (запись нового ключа), <code>__call</code> (вызов таблицы как функции). Но для ООП главный — <code>__index</code>.</p>
+
+  <h2>Класс в Luau</h2>
+  <p>Идея: таблица-класс хранит <b>методы</b>, а у каждого объекта своя таблица с <b>данными</b>, у которой метатаблица указывает на класс. Тогда методы общие, а данные у каждого свои.</p>
+  <pre data-where="ReplicatedStorage > ModuleScript «Weapon»"><code>local Weapon = {}
+Weapon.__index = Weapon   -- объекты будут искать методы в Weapon
+
+-- Конструктор: создаёт новый объект
+function Weapon.new(name, damage, cooldown)
+	local self = setmetatable({}, Weapon)
+	self.name = name
+	self.damage = damage
+	self.cooldown = cooldown
+	self.lastUsed = 0
+	return self
+end
+
+-- Метод: через двоеточие, внутри доступен self
+function Weapon:canAttack()
+	return os.clock() - self.lastUsed >= self.cooldown
+end
+
+function Weapon:attack(targetHumanoid)
+	if not self:canAttack() then
+		return false
+	end
+	self.lastUsed = os.clock()
+	targetHumanoid:TakeDamage(self.damage)
+	return true
+end
+
+function Weapon:upgrade()
+	self.damage = math.floor(self.damage * 1.2)
+	print(`{self.name} улучшен! Урон: {self.damage}`)
+end
+
+return Weapon</code></pre>
+  <pre data-where="ServerScriptService > Script"><code>local Weapon = require(game:GetService("ReplicatedStorage").Weapon)
+
+local sword = Weapon.new("Меч", 25, 0.5)
+local axe = Weapon.new("Топор", 40, 1.2)
+
+sword:upgrade()        --> Меч улучшен! Урон: 30
+print(axe.damage)      --> 40: у каждого объекта свои данные
+print(sword:canAttack()) --> true</code></pre>
+
+  <h3>Что происходит при вызове <code>sword:upgrade()</code></h3>
+  <ol>
+    <li>Двоеточие превращает вызов в <code>sword.upgrade(sword)</code>: объект передаётся первым аргументом.</li>
+    <li>В таблице <code>sword</code> нет ключа <code>upgrade</code> (там только name, damage...).</li>
+    <li>Luau смотрит в метатаблицу <code>sword</code> → это <code>Weapon</code>, а <code>Weapon.__index = Weapon</code> → ищет <code>Weapon.upgrade</code> и находит.</li>
+    <li>Внутри метода <code>self</code> = <code>sword</code>.</li>
+  </ol>
+  <div class="note warn"><p>Объявил метод через <code>:</code>, значит, и вызывай через <code>:</code>. Если написать <code>sword.upgrade()</code>, то <code>self</code> будет nil, и получишь ошибку <code>attempt to index nil with 'damage'</code>.</p></div>
+
+  <h2>Класс, управляющий объектом игры</h2>
+  <p>Чаще всего классы в Roblox «оборачивают» объекты мира: мобов, двери, турели. Сделаем класс вращающейся ловушки:</p>
+  <pre data-where="ServerScriptService > Modules > ModuleScript «SpinTrap»"><code>local RunService = game:GetService("RunService")
+
+local SpinTrap = {}
+SpinTrap.__index = SpinTrap
+
+function SpinTrap.new(part, speed)
+	local self = setmetatable({}, SpinTrap)
+	self.part = part
+	self.speed = speed or 90
+	self.connections = {}
+
+	part.Anchored = true
+
+	table.insert(self.connections, RunService.Heartbeat:Connect(function(dt)
+		self:_rotate(dt)
+	end))
+
+	table.insert(self.connections, part.Touched:Connect(function(hit)
+		local humanoid = hit.Parent:FindFirstChildOfClass("Humanoid")
+		if humanoid then
+			humanoid:TakeDamage(10)
+		end
+	end))
+
+	return self
+end
+
+-- «_» в начале имени — соглашение: метод для внутреннего использования
+function SpinTrap:_rotate(dt)
+	self.part.CFrame *= CFrame.Angles(0, math.rad(self.speed * dt), 0)
+end
+
+function SpinTrap:destroy()
+	for _, connection in self.connections do
+		connection:Disconnect()
+	end
+	table.clear(self.connections)
+	self.part:Destroy()
+end
+
+return SpinTrap</code></pre>
+  <pre data-where="ServerScriptService > Script «Traps»"><code>local SpinTrap = require(game:GetService("ServerScriptService").Modules.SpinTrap)
+
+local traps = {}
+for _, part in workspace:WaitForChild("Traps"):GetChildren() do
+	table.insert(traps, SpinTrap.new(part, math.random(60, 180)))
+end
+
+-- Через минуту убираем все ловушки — корректно, с отключением событий
+task.wait(60)
+for _, trap in traps do
+	trap:destroy()
+end</code></pre>
+  <div class="note tip"><p>Метод <code>destroy</code> с отключением соединений — признак аккуратного кода. Если удалить объект, но оставить подключённый Heartbeat, он будет работать вечно. Это утечка памяти.</p></div>
+
+  <h2>Наследование</h2>
+  <p>Класс-потомок берёт всё от родителя и добавляет своё. Например, <code>MagicWeapon</code> — это Weapon, который ещё тратит ману:</p>
+  <pre data-where="ReplicatedStorage > ModuleScript «MagicWeapon»"><code>local Weapon = require(script.Parent.Weapon)
+
+local MagicWeapon = setmetatable({}, {__index = Weapon})  -- чего нет у MagicWeapon — ищем в Weapon
+MagicWeapon.__index = MagicWeapon
+
+function MagicWeapon.new(name, damage, cooldown, manaCost)
+	local self = Weapon.new(name, damage, cooldown)  -- создаём «базу»
+	setmetatable(self, MagicWeapon)                   -- и делаем её MagicWeapon
+	self.manaCost = manaCost
+	self.mana = 100
+	return self
+end
+
+-- Переопределяем метод родителя
+function MagicWeapon:attack(targetHumanoid)
+	if self.mana &lt; self.manaCost then
+		print("Не хватает маны!")
+		return false
+	end
+	local success = Weapon.attack(self, targetHumanoid)  -- вызываем родительский метод
+	if success then
+		self.mana -= self.manaCost
+	end
+	return success
+end
+
+return MagicWeapon</code></pre>
+  <p>Цепочка поиска метода: объект → MagicWeapon → Weapon. Метод <code>upgrade</code> у MagicWeapon не объявлен, но работает, потому что найдётся в Weapon.</p>
+
+  <h2>__tostring для удобной отладки</h2>
+  <pre data-where="ReplicatedStorage > ModuleScript «Weapon» (дополнение)"><code>Weapon.__tostring = function(self)
+	return `Weapon({self.name}, урон {self.damage})`
+end
+
+-- print(sword) --> Weapon(Меч, урон 30)</code></pre>
+
+  <section class="quiz">
+    <h2>🧠 Проверь себя</h2>
+    <div class="q" data-correct="2">
+      <p>Что делает <code>Weapon.__index = Weapon</code>?</p>
+      <ol><li>Создаёт копию Weapon</li><li>Удаляет методы</li><li>Указывает, что объекты с этой метатаблицей должны искать недостающие ключи в Weapon</li><li>Делает Weapon глобальным</li></ol>
+      <p class="explain">Благодаря этому объекты «видят» методы класса.</p>
+    </div>
+    <div class="q" data-correct="0">
+      <p>Метод объявлен как <code>function Weapon:attack(target)</code>. Как правильно вызвать?</p>
+      <ol><li><code>sword:attack(target)</code></li><li><code>sword.attack(target)</code></li><li><code>Weapon:attack(sword, target)</code></li><li><code>attack(sword, target)</code></li></ol>
+      <p class="explain">Двоеточие передаёт sword как self.</p>
+    </div>
+    <div class="q" data-correct="3">
+      <p>Зачем классу, использующему Heartbeat и Touched, метод destroy с Disconnect?</p>
+      <ol><li>Так требует синтаксис</li><li>Чтобы объект можно было клонировать</li><li>Для красоты</li><li>Чтобы соединения не продолжали работать после удаления объекта (утечка памяти)</li></ol>
+      <p class="explain">Подписки на события детали отключатся при её Destroy, но RunService никогда не удаляется, и подписка на Heartbeat будет работать, пока её не отключат вручную.</p>
+    </div>
+    <div class="q" data-correct="1">
+      <p>В <code>MagicWeapon:attack</code> мы вызвали <code>Weapon.attack(self, target)</code>. Зачем?</p>
+      <ol><li>Чтобы создать новое оружие</li><li>Чтобы использовать логику родителя внутри переопределённого метода</li><li>Это ошибка</li><li>Чтобы удалить метод родителя</li></ol>
+      <p class="explain">Так дополняют поведение, а не переписывают его заново.</p>
+    </div>
+  </section>
+
+  <section class="tasks">
+    <h2>📚 Задания</h2>
+    <div class="task">
+      <h3>Задание 1 <span class="level easy">лёгкое</span></h3>
+      <p>Напиши класс <code>BankAccount</code> с полем <code>balance</code> и методами <code>deposit(amount)</code>, <code>withdraw(amount)</code> (возвращает false, если денег мало) и <code>getBalance()</code>.</p>
+      <details><summary>✅ Решение</summary>
+        <pre data-where="ReplicatedStorage > ModuleScript «BankAccount»"><code>local BankAccount = {}
+BankAccount.__index = BankAccount
+
+function BankAccount.new(startBalance)
+	local self = setmetatable({}, BankAccount)
+	self.balance = startBalance or 0
+	return self
+end
+
+function BankAccount:deposit(amount)
+	self.balance += amount
+end
+
+function BankAccount:withdraw(amount)
+	if amount > self.balance then
+		return false
+	end
+	self.balance -= amount
+	return true
+end
+
+function BankAccount:getBalance()
+	return self.balance
+end
+
+return BankAccount</code></pre>
+      </details>
+    </div>
+    <div class="task">
+      <h3>Задание 2 <span class="level mid">среднее</span></h3>
+      <p>Сделай класс <code>Mob</code> для NPC-модели (с Humanoid): <code>Mob.new(model, walkPoints)</code> заставляет NPC бесконечно ходить между точками (<code>humanoid:MoveTo(point)</code> и <code>humanoid.MoveToFinished:Wait()</code>). Добавь метод <code>stop()</code>.</p>
+      <details><summary>✅ Решение</summary>
+        <pre data-where="ServerScriptService > Modules > ModuleScript «Mob»"><code>local Mob = {}
+Mob.__index = Mob
+
+function Mob.new(model, walkPoints)
+	local self = setmetatable({}, Mob)
+	self.model = model
+	self.humanoid = model:WaitForChild("Humanoid")
+	self.points = walkPoints
+	self.running = true
+
+	task.spawn(function()
+		self:_patrol()
+	end)
+	return self
+end
+
+function Mob:_patrol()
+	local i = 1
+	while self.running and self.humanoid.Health > 0 do
+		self.humanoid:MoveTo(self.points[i])
+		self.humanoid.MoveToFinished:Wait()
+		i = i % #self.points + 1   -- 1, 2, 3, 1, 2, 3...
+	end
+end
+
+function Mob:stop()
+	self.running = false
+end
+
+return Mob</code></pre>
+        <pre data-where="ServerScriptService > Script"><code>local Mob = require(game:GetService("ServerScriptService").Modules.Mob)
+
+local zombie = Mob.new(workspace:WaitForChild("Zombie"), {
+	Vector3.new(0, 0, 0),
+	Vector3.new(30, 0, 0),
+	Vector3.new(30, 0, 30),
+})</code></pre>
+      </details>
+    </div>
+    <div class="task">
+      <h3>Задание 3 <span class="level hard">сложное</span></h3>
+      <p>Сделай класс <code>Vector2D</code> с полями x, y и метаметодами <code>__add</code>, <code>__eq</code>, <code>__tostring</code>, чтобы работал такой код: <code>print(Vector2D.new(1, 2) + Vector2D.new(3, 4))</code> → <code>(4, 6)</code>.</p>
+      <details><summary>✅ Решение</summary>
+        <pre data-where="ReplicatedStorage > ModuleScript «Vector2D»"><code>local Vector2D = {}
+Vector2D.__index = Vector2D
+
+function Vector2D.new(x, y)
+	return setmetatable({x = x, y = y}, Vector2D)
+end
+
+Vector2D.__add = function(a, b)
+	return Vector2D.new(a.x + b.x, a.y + b.y)
+end
+
+Vector2D.__eq = function(a, b)
+	return a.x == b.x and a.y == b.y
+end
+
+Vector2D.__tostring = function(v)
+	return `({v.x}, {v.y})`
+end
+
+function Vector2D:length()
+	return math.sqrt(self.x ^ 2 + self.y ^ 2)
+end
+
+return Vector2D</code></pre>
+      </details>
+    </div>
+  </section>
+</article>
+<script src="../js/course.js"></script>
+<script src="../js/app.js"></script>
+</body>
+</html>

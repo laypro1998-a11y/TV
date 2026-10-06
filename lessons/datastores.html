@@ -1,0 +1,368 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DataStore: сохранение прогресса</title>
+<link rel="stylesheet" href="../css/style.css">
+</head>
+<body data-lesson="datastores">
+<article class="lesson">
+  <h1>DataStore: сохранение прогресса</h1>
+  <p class="lead">Без сохранений игрок теряет всё при выходе. DataStore — облачное хранилище Roblox, где данные игроков живут между сессиями и серверами. Научимся сохранять надёжно, без потерь данных.</p>
+
+  <div class="goals"><strong>🎯 После урока ты сможешь:</strong>
+    <ul>
+      <li>включить DataStore в Studio;</li>
+      <li>загружать и сохранять данные через <code>GetAsync</code>, <code>SetAsync</code>, <code>UpdateAsync</code>;</li>
+      <li>обрабатывать ошибки через <code>pcall</code>;</li>
+      <li>сохранять при выходе и при выключении сервера.</li>
+    </ul>
+  </div>
+
+  <h2>Подготовка</h2>
+  <ol>
+    <li>Опубликуй игру: <b>File → Publish to Roblox</b>. DataStore работает только у опубликованных игр.</li>
+    <li>Открой <b>Home → Game Settings → Security</b> и включи <b>Enable Studio Access to API Services</b>.</li>
+  </ol>
+  <div class="note warn"><p>Данные из Studio сохраняются в <b>то же хранилище</b>, что и у настоящих игроков. Для экспериментов используй отдельное имя хранилища, например <code>"PlayerData_Test"</code>.</p></div>
+  <div class="note info"><p>DataStore работает <b>только на сервере</b>, в Script. Клиент к нему доступа не имеет, и это правильно: иначе читеры записывали бы себе что угодно.</p></div>
+
+  <h2>Основы</h2>
+  <pre data-where="ServerScriptService > Script"><code>local DataStoreService = game:GetService("DataStoreService")
+local store = DataStoreService:GetDataStore("PlayerData_v1")
+
+-- Сохранить: ключ + значение
+store:SetAsync("Player_12345", {coins = 100, level = 3})
+
+-- Загрузить
+local data = store:GetAsync("Player_12345")
+print(data.coins) --> 100</code></pre>
+  <ul>
+    <li><b>Хранилище</b> (DataStore) — как папка. У него есть имя.</li>
+    <li><b>Ключ</b> — имя записи. Для игроков используй <code>UserId</code>: <code>"Player_" .. player.UserId</code>.</li>
+    <li><b>Значение</b> — число, строка, boolean или таблица из них. <b>Нельзя</b> сохранить Instance, Vector3, Color3 напрямую. Их нужно перевести в числа.</li>
+  </ul>
+
+  <h2>pcall — защита от сбоев</h2>
+  <p>DataStore — запрос по сети к серверам Roblox. Он <b>может не пройти</b>: перегрузка, лимиты, сбой. Если вызвать его напрямую и он упадёт, твой скрипт остановится с ошибкой. Поэтому все вызовы оборачивают в <code>pcall</code> («protected call»):</p>
+  <pre data-where="ServerScriptService > Script"><code>local success, result = pcall(function()
+	return store:GetAsync("Player_12345")
+end)
+
+if success then
+	print("Загружено:", result)       -- result = данные (или nil, если записи нет)
+else
+	warn("Ошибка загрузки:", result)  -- result = текст ошибки
+end</code></pre>
+  <p><code>pcall</code> возвращает <code>true</code> и результат, если всё хорошо, или <code>false</code> и текст ошибки, если нет. Скрипт при этом не падает.</p>
+
+  <h2>UpdateAsync — безопасное изменение</h2>
+  <p><code>SetAsync</code> просто перезаписывает. Если игрок одновременно оказался на двух серверах (например, быстро перешёл), один сервер может затереть данные другого. <code>UpdateAsync</code> читает текущее значение и даёт тебе его изменить:</p>
+  <pre data-where="ServerScriptService > Script"><code>pcall(function()
+	store:UpdateAsync("Player_12345", function(oldData)
+		oldData = oldData or {coins = 0}
+		oldData.coins += 50
+		return oldData          -- вернуть nil = отменить запись
+	end)
+end)</code></pre>
+  <div class="note tip"><p>Для сохранения прогресса игрока рекомендуется <b>UpdateAsync</b>: он надёжнее при одновременных записях.</p></div>
+
+  <h2>Полная система сохранений</h2>
+  <p>Соберём рабочую систему: загрузка при входе, leaderstats, сохранение при выходе, при выключении сервера и автосохранение.</p>
+  <div class="explorer">
+    <div class="ex-title">Explorer</div>
+    <ul><li class="svc">ServerScriptService<ul><li class="script"><span class="hl">DataManager</span></li></ul></li></ul>
+  </div>
+  <pre data-where="ServerScriptService > Script «DataManager»"><code>local Players = game:GetService("Players")
+local DataStoreService = game:GetService("DataStoreService")
+local store = DataStoreService:GetDataStore("PlayerData_v1")
+
+local DEFAULT_DATA = {
+	coins = 0,
+	level = 1,
+	inventory = {},
+}
+
+local sessionData = {}   -- [player] = таблица данных во время игры
+local AUTOSAVE_INTERVAL = 120
+
+local function getKey(player)
+	return "Player_" .. player.UserId
+end
+
+-- Загрузка с несколькими попытками
+local function loadData(player)
+	for attempt = 1, 3 do
+		local success, result = pcall(function()
+			return store:GetAsync(getKey(player))
+		end)
+		if success then
+			return true, result
+		end
+		warn(`Загрузка {player.Name}, попытка {attempt}: {result}`)
+		task.wait(2)
+	end
+	return false, nil
+end
+
+local function saveData(player)
+	local data = sessionData[player]
+	if not data then return end  -- данные не загружены — НЕ сохраняем, чтобы не затереть
+
+	local success, err = pcall(function()
+		store:UpdateAsync(getKey(player), function()
+			return data
+		end)
+	end)
+	if not success then
+		warn(`Не удалось сохранить {player.Name}: {err}`)
+	end
+end
+
+local function setupLeaderstats(player, data)
+	local leaderstats = Instance.new("Folder")
+	leaderstats.Name = "leaderstats"
+
+	local coins = Instance.new("IntValue")
+	coins.Name = "Coins"
+	coins.Value = data.coins
+	coins.Parent = leaderstats
+
+	local level = Instance.new("IntValue")
+	level.Name = "Level"
+	level.Value = data.level
+	level.Parent = leaderstats
+
+	-- leaderstats меняют другие скрипты — синхронизируем в sessionData
+	coins.Changed:Connect(function(value) data.coins = value end)
+	level.Changed:Connect(function(value) data.level = value end)
+
+	leaderstats.Parent = player
+end
+
+Players.PlayerAdded:Connect(function(player)
+	local success, saved = loadData(player)
+	if not success then
+		player:Kick("Не удалось загрузить данные. Перезайдите, пожалуйста.")
+		return
+	end
+
+	-- Новый игрок → копия шаблона. Старый → дополним новыми полями, если они появились
+	local data = table.clone(DEFAULT_DATA)
+	data.inventory = {}
+	if saved then
+		for key, value in saved do
+			data[key] = value
+		end
+	end
+
+	sessionData[player] = data
+	setupLeaderstats(player, data)
+	print(`Данные {player.Name} загружены: {data.coins} монет`)
+end)
+
+Players.PlayerRemoving:Connect(function(player)
+	saveData(player)
+	sessionData[player] = nil
+end)
+
+-- Сервер выключается: сохраняем всех, пока есть время (до 30 секунд)
+game:BindToClose(function()
+	local pending = 0
+	for _, player in Players:GetPlayers() do
+		pending += 1
+		task.spawn(function()      -- сохраняем всех параллельно
+			saveData(player)
+			pending -= 1
+		end)
+	end
+	while pending > 0 do           -- и ждём, пока все сохранения закончатся
+		task.wait()
+	end
+end)
+
+-- Автосохранение на случай краша сервера
+task.spawn(function()
+	while true do
+		task.wait(AUTOSAVE_INTERVAL)
+		for _, player in Players:GetPlayers() do
+			task.spawn(saveData, player)
+		end
+	end
+end)</code></pre>
+
+  <h3>Разбор важных моментов</h3>
+  <ul>
+    <li><b>sessionData</b>: во время игры работаем с таблицей в памяти, а не дёргаем DataStore на каждое изменение. У DataStore есть лимиты на количество запросов.</li>
+    <li><b>Если загрузка не удалась — кик</b>, а не пустые данные. Иначе игрок поиграет «с нуля», выйдет, и пустые данные <b>перезапишут</b> его настоящий прогресс. Это самая частая причина «у меня пропал прогресс!».</li>
+    <li><b>BindToClose</b>: когда сервер закрывается (последний игрок вышел, обновление игры), PlayerRemoving может не успеть. BindToClose даёт до 30 секунд на сохранение.</li>
+    <li><b>DEFAULT_DATA + слияние</b>: если ты добавишь в игру новое поле (например, <code>gems</code>), у старых игроков оно появится со значением по умолчанию.</li>
+  </ul>
+
+  <h2>Что можно и нельзя сохранять</h2>
+  <pre data-where="ServerScriptService > Script"><code>-- ❌ Нельзя: Instance, Vector3, Color3, CFrame
+-- data.lastPosition = root.Position
+
+-- ✅ Можно: переводим в числа
+local pos = root.Position
+data.lastPosition = {x = pos.X, y = pos.Y, z = pos.Z}
+
+-- И обратно при загрузке
+local p = data.lastPosition
+local position = Vector3.new(p.x, p.y, p.z)
+
+-- ✅ Инвентарь храним названиями, а не самими предметами
+data.inventory = {"Sword", "Shield"}</code></pre>
+  <p>Ограничения: значение до 4 МБ на ключ. Ключи у таблиц должны быть строками (словарь) или идти подряд с 1 (массив). Смешанные таблицы сохраняются неправильно.</p>
+
+  <h2>OrderedDataStore — таблица лидеров</h2>
+  <p>Для глобального топа (лучшие игроки за всё время) есть <b>OrderedDataStore</b>. Он хранит только числа, зато умеет сортировать:</p>
+  <pre data-where="ServerScriptService > Script «GlobalLeaderboard»"><code>local DataStoreService = game:GetService("DataStoreService")
+local Players = game:GetService("Players")
+local leaderboard = DataStoreService:GetOrderedDataStore("TopCoins_v1")
+
+-- Записать результат игрока
+local function submit(player, coins)
+	pcall(function()
+		leaderboard:SetAsync(tostring(player.UserId), coins)
+	end)
+end
+
+-- Получить топ-10
+local function printTop()
+	local success, pages = pcall(function()
+		return leaderboard:GetSortedAsync(false, 10)  -- false = по убыванию
+	end)
+	if not success then return end
+
+	for rank, entry in pages:GetCurrentPage() do
+		local name = "?"
+		pcall(function()
+			name = Players:GetNameFromUserIdAsync(tonumber(entry.key))
+		end)
+		print(`{rank}. {name} — {entry.value}`)
+	end
+end</code></pre>
+
+  <div class="note tip"><p>Для больших проектов сообщество использует готовые модули сохранений: <b>ProfileStore</b> (преемник ProfileService) и <b>DataStore2</b>. Они решают блокировку сессий и другие сложные случаи. Сначала разберись с основами из этого урока, потом смотри на них.</p></div>
+
+  <section class="quiz">
+    <h2>🧠 Проверь себя</h2>
+    <div class="q" data-correct="2">
+      <p>Зачем оборачивать GetAsync в pcall?</p>
+      <ol><li>Чтобы запрос шёл быстрее</li><li>Так требует синтаксис</li><li>Запрос может завершиться ошибкой, и без pcall скрипт упадёт</li><li>Чтобы данные шифровались</li></ol>
+      <p class="explain">Сетевые запросы ненадёжны, pcall перехватывает ошибку.</p>
+    </div>
+    <div class="q" data-correct="0">
+      <p>Загрузка данных не удалась. Что лучше сделать?</p>
+      <ol><li>Кикнуть игрока с просьбой перезайти и не сохранять его данные</li><li>Дать игроку стартовые данные и сохранять их как обычно</li><li>Ничего не делать</li><li>Удалить запись в DataStore</li></ol>
+      <p class="explain">Если сохранить «пустые» данные, они затрут настоящий прогресс игрока.</p>
+    </div>
+    <div class="q" data-correct="3">
+      <p>Что из этого можно сохранить в DataStore напрямую?</p>
+      <ol><li><code>Vector3.new(1, 2, 3)</code></li><li><code>workspace.Sword</code></li><li><code>Color3.new(1, 0, 0)</code></li><li><code>{coins = 10, items = {"Sword"}}</code></li></ol>
+      <p class="explain">Только простые значения и таблицы из них. Типы Roblox нужно переводить в числа.</p>
+    </div>
+    <div class="q" data-correct="1">
+      <p>Для чего нужен <code>game:BindToClose</code>?</p>
+      <ol><li>Чтобы игроки не могли выйти</li><li>Чтобы успеть сохранить данные, когда сервер выключается</li><li>Чтобы закрыть DataStore</li><li>Чтобы закрыть GUI</li></ol>
+      <p class="explain">При выключении сервера PlayerRemoving может не успеть отработать.</p>
+    </div>
+    <div class="q" data-correct="2">
+      <p>Какой ключ лучше использовать для данных игрока?</p>
+      <ol><li><code>player.Name</code></li><li><code>player.DisplayName</code></li><li><code>"Player_" .. player.UserId</code></li><li><code>tostring(os.time())</code></li></ol>
+      <p class="explain">UserId постоянный и уникальный.</p>
+    </div>
+  </section>
+
+  <section class="tasks">
+    <h2>📚 Задания</h2>
+    <div class="task">
+      <h3>Задание 1 <span class="level easy">лёгкое</span></h3>
+      <p>Сохраняй и загружай одно число: сколько раз игрок заходил в игру. При входе выведи: <code>Ты зашёл уже N раз!</code></p>
+      <details><summary>✅ Решение</summary>
+        <pre data-where="ServerScriptService > Script"><code>local Players = game:GetService("Players")
+local store = game:GetService("DataStoreService"):GetDataStore("Visits_v1")
+
+Players.PlayerAdded:Connect(function(player)
+	local success, visits = pcall(function()
+		return store:UpdateAsync("Player_" .. player.UserId, function(old)
+			return (old or 0) + 1
+		end)
+	end)
+	if success then
+		print(`{player.Name}, ты зашёл уже {visits} раз!`)
+	end
+end)</code></pre>
+        <p>UpdateAsync возвращает новое значение, поэтому загрузка и сохранение здесь одной операцией.</p>
+      </details>
+    </div>
+    <div class="task">
+      <h3>Задание 2 <span class="level mid">среднее</span></h3>
+      <p>Возьми DataManager из урока и добавь сохранение инвентаря: при входе игрок получает в Backpack все инструменты из <code>data.inventory</code> (шаблоны лежат в <code>ServerStorage.Tools</code>). Добавь серверную функцию <code>giveItem(player, name)</code>, которая выдаёт инструмент и записывает его в инвентарь.</p>
+      <details><summary>✅ Решение (дополнение к DataManager)</summary>
+        <pre data-where="ServerScriptService > Script «DataManager» (дополнение)"><code>local ServerStorage = game:GetService("ServerStorage")
+local toolsFolder = ServerStorage:WaitForChild("Tools")
+
+local function giveTool(player, toolName)
+	local template = toolsFolder:FindFirstChild(toolName)
+	if template then
+		template:Clone().Parent = player.Backpack
+	end
+end
+
+local function giveItem(player, toolName)
+	local data = sessionData[player]
+	if not data then return end
+	if table.find(data.inventory, toolName) then return end  -- уже есть
+	table.insert(data.inventory, toolName)
+	giveTool(player, toolName)
+end
+
+-- В PlayerAdded после загрузки данных:
+-- инструменты в Backpack пропадают после смерти, поэтому выдаём при каждом спавне
+player.CharacterAdded:Connect(function()
+	for _, toolName in data.inventory do
+		giveTool(player, toolName)
+	end
+end)</code></pre>
+      </details>
+    </div>
+    <div class="task">
+      <h3>Задание 3 <span class="level hard">сложное</span></h3>
+      <p>Сделай сохранение позиции: при выходе запоминай, где стоял игрок, а при следующем входе телепортируй его туда.</p>
+      <details><summary>✅ Решение</summary>
+        <pre data-where="ServerScriptService > Script"><code>local Players = game:GetService("Players")
+local store = game:GetService("DataStoreService"):GetDataStore("Positions_v1")
+
+Players.PlayerAdded:Connect(function(player)
+	local ok, saved = pcall(function()
+		return store:GetAsync("Player_" .. player.UserId)
+	end)
+
+	player.CharacterAdded:Once(function(character)
+		if ok and saved then
+			task.wait(0.5)  -- даём персонажу загрузиться
+			character:PivotTo(CFrame.new(saved.x, saved.y + 3, saved.z))
+		end
+	end)
+end)
+
+Players.PlayerRemoving:Connect(function(player)
+	local character = player.Character
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	if not root then return end
+	local p = root.Position
+	pcall(function()
+		store:SetAsync("Player_" .. player.UserId, {x = p.X, y = p.Y, z = p.Z})
+	end)
+end)</code></pre>
+      </details>
+    </div>
+  </section>
+</article>
+<script src="../js/course.js"></script>
+<script src="../js/app.js"></script>
+</body>
+</html>

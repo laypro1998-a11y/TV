@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Таблицы: массивы и словари</title>
+<link rel="stylesheet" href="../css/style.css">
+</head>
+<body data-lesson="tables">
+<article class="lesson">
+  <h1>Таблицы: массивы и словари</h1>
+  <p class="lead">Таблица — единственная структура данных в Luau, и она умеет всё: списки, словари, объекты, модули. Инвентарь, список игроков, настройки магазина — это всё таблицы.</p>
+
+  <div class="goals"><strong>🎯 После урока ты сможешь:</strong>
+    <ul>
+      <li>создавать массивы и словари;</li>
+      <li>добавлять, искать и удалять элементы;</li>
+      <li>перебирать таблицы циклом <code>for ... in</code>;</li>
+      <li>перебирать объекты игры через <code>GetChildren</code>.</li>
+    </ul>
+  </div>
+
+  <h2>Массив — пронумерованный список</h2>
+  <pre data-where="ServerScriptService > Script"><code>local inventory = {"Меч", "Щит", "Зелье"}
+
+print(inventory[1])   --> Меч     (нумерация с 1!)
+print(inventory[3])   --> Зелье
+print(inventory[4])   --> nil     (такого нет)
+print(#inventory)     --> 3       (длина)</code></pre>
+
+  <h3>Изменение массива</h3>
+  <pre data-where="ServerScriptService > Script"><code>local inventory = {"Меч", "Щит"}
+
+table.insert(inventory, "Лук")          -- в конец: {Меч, Щит, Лук}
+table.insert(inventory, 1, "Шлем")      -- на позицию 1: {Шлем, Меч, Щит, Лук}
+
+local index = table.find(inventory, "Щит")
+print(index)                            --> 3
+
+table.remove(inventory, index)          -- удалить по номеру: {Шлем, Меч, Лук}
+inventory[2] = "Топор"                  -- заменить: {Шлем, Топор, Лук}
+
+print(table.concat(inventory, ", "))    --> Шлем, Топор, Лук</code></pre>
+
+  <h2>Словарь — ключ и значение</h2>
+  <p>Когда элементы удобнее называть, а не нумеровать, используют словарь:</p>
+  <pre data-where="ServerScriptService > Script"><code>local sword = {
+	name = "Огненный меч",
+	damage = 35,
+	speed = 1.2,
+	isLegendary = true,
+}
+
+print(sword.name)        --> Огненный меч
+print(sword["damage"])   --> 35  (то же самое, что sword.damage)
+
+sword.damage += 10       -- изменить
+sword.element = "Огонь"  -- добавить новый ключ
+sword.speed = nil        -- удалить ключ</code></pre>
+  <p>Ключ в квадратных скобках нужен, когда имя ключа хранится в переменной или содержит пробелы:</p>
+  <pre data-where="ServerScriptService > Script"><code>local prices = {
+	["Обычный меч"] = 50,
+	["Огненный меч"] = 300,
+}
+local itemName = "Огненный меч"
+print(prices[itemName]) --> 300</code></pre>
+
+  <h2>Перебор таблиц</h2>
+  <pre data-where="ServerScriptService > Script"><code>local inventory = {"Меч", "Щит", "Зелье"}
+
+for index, item in inventory do
+	print(index, item)
+end
+--> 1 Меч
+--> 2 Щит
+--> 3 Зелье
+
+local stats = {strength = 10, agility = 7, magic = 3}
+for statName, value in stats do
+	print(statName, "=", value)
+end</code></pre>
+  <div class="note info"><p>Во многих туториалах ты увидишь <code>for i, v in ipairs(t)</code> и <code>for k, v in pairs(t)</code>. Это старый, но рабочий способ. В современном Luau можно просто писать <code>for k, v in t do</code>. Учти: у словаря <b>порядок перебора не гарантирован</b>.</p></div>
+  <p>Если переменная не нужна, принято называть её <code>_</code>:</p>
+  <pre data-where="ServerScriptService > Script"><code>for _, item in inventory do
+	print(item)
+end</code></pre>
+
+  <h2>Таблицы и объекты игры</h2>
+  <p>Методы <code>GetChildren()</code> и <code>GetDescendants()</code> возвращают <b>массив объектов</b>. Это самое частое применение циклов в Roblox.</p>
+  <div class="explorer">
+    <div class="ex-title">Explorer</div>
+    <ul><li class="svc">Workspace
+      <ul><li class="folder"><span class="hl">Lamps</span>
+        <ul><li class="part">Lamp</li><li class="part">Lamp</li><li class="part">Lamp</li><li class="part">Lamp</li></ul>
+      </li></ul>
+    </li></ul>
+  </div>
+  <pre data-where="ServerScriptService > Script «LampsController»"><code>local lampsFolder = workspace:WaitForChild("Lamps")
+
+-- Включаем все лампы в папке разом
+for _, lamp in lampsFolder:GetChildren() do
+	if lamp:IsA("BasePart") then        -- на всякий случай: только детали
+		lamp.Material = Enum.Material.Neon
+		lamp.BrickColor = BrickColor.new("New Yeller")
+	end
+end</code></pre>
+  <p>Добавишь в папку ещё 20 ламп, и код менять не придётся. Хорошая практика: <b>складывать похожие объекты в папку и перебирать её</b>, а не искать каждый по имени.</p>
+
+  <h2>Вложенные таблицы</h2>
+  <pre data-where="ServerScriptService > Script"><code>local shop = {
+	{name = "Меч", price = 100, damage = 20},
+	{name = "Топор", price = 250, damage = 35},
+	{name = "Молот", price = 600, damage = 60},
+}
+
+local coins = 300
+for _, item in shop do
+	if coins >= item.price then
+		print(`Можно купить: {item.name} ({item.price} монет, урон {item.damage})`)
+	end
+end</code></pre>
+
+  <h2>Таблицы передаются по ссылке</h2>
+  <pre data-where="ServerScriptService > Script"><code>local a = {1, 2, 3}
+local b = a        -- это НЕ копия, а та же самая таблица
+b[1] = 100
+print(a[1])        --> 100 !
+
+local c = table.clone(a)  -- настоящая (поверхностная) копия
+c[1] = 5
+print(a[1])        --> 100, оригинал не изменился</code></pre>
+  <div class="note warn"><p>Это частый источник багов: передал таблицу в функцию, а функция её изменила. Если нужна независимая копия, используй <code>table.clone</code>.</p></div>
+
+  <h2>Ещё полезное</h2>
+  <pre data-where="ServerScriptService > Script"><code>local scores = {40, 15, 90, 62}
+table.sort(scores)                       --> {15, 40, 62, 90}
+table.sort(scores, function(a, b)        -- по убыванию
+	return a > b
+end)
+print(scores[1])                         --> 90 — лучший результат
+
+table.clear(scores)                      -- очистить таблицу
+print(#scores)                           --> 0</code></pre>
+
+  <section class="quiz">
+    <h2>🧠 Проверь себя</h2>
+    <div class="q" data-correct="1">
+      <p>Что выведет <code>print(t[1])</code>, если <code>local t = {"a", "b", "c"}</code>?</p>
+      <ol><li>nil</li><li>a</li><li>b</li><li>Ошибку</li></ol>
+      <p class="explain">В Luau нумерация начинается с 1.</p>
+    </div>
+    <div class="q" data-correct="2">
+      <p>Как узнать количество элементов в массиве <code>items</code>?</p>
+      <ol><li><code>items.length</code></li><li><code>len(items)</code></li><li><code>#items</code></li><li><code>items:Count()</code></li></ol>
+      <p class="explain">Оператор <code>#</code> возвращает длину массива. Для словарей он не работает: там нужно считать вручную.</p>
+    </div>
+    <div class="q" data-correct="0">
+      <p>Что вернёт <code>folder:GetChildren()</code>?</p>
+      <ol><li>Массив прямых потомков папки</li><li>Количество объектов</li><li>Первый объект в папке</li><li>Все объекты, включая вложенные</li></ol>
+      <p class="explain">GetChildren — только прямые «дети». Все вложенные на любую глубину возвращает GetDescendants.</p>
+    </div>
+    <div class="q" data-correct="3">
+      <p><code>local b = a</code>, затем <code>b.x = 5</code>. Что будет с <code>a.x</code>?</p>
+      <ol><li>Останется прежним</li><li>Станет nil</li><li>Ошибка</li><li>Тоже станет 5</li></ol>
+      <p class="explain">a и b указывают на одну и ту же таблицу.</p>
+    </div>
+  </section>
+
+  <section class="tasks">
+    <h2>📚 Задания</h2>
+    <div class="task">
+      <h3>Задание 1 <span class="level easy">лёгкое</span></h3>
+      <p>Создай массив из 5 имён друзей. Выведи каждое с номером, потом удали третьего и добавь нового в начало. Выведи итог через <code>table.concat</code>.</p>
+      <details><summary>✅ Решение</summary>
+        <pre data-where="ServerScriptService > Script"><code>local friends = {"Аня", "Боря", "Вика", "Гриша", "Даша"}
+for i, name in friends do
+	print(i, name)
+end
+
+table.remove(friends, 3)
+table.insert(friends, 1, "Егор")
+print(table.concat(friends, ", ")) --> Егор, Аня, Боря, Гриша, Даша</code></pre>
+      </details>
+    </div>
+    <div class="task">
+      <h3>Задание 2 <span class="level mid">среднее</span></h3>
+      <p>Создай в Workspace папку <code>Obstacles</code> с несколькими деталями. Напиши скрипт, который красит все детали папки в случайный цвет (<code>BrickColor.random()</code>) и выводит, сколько деталей покрашено.</p>
+      <details><summary>✅ Решение</summary>
+        <pre data-where="ServerScriptService > Script"><code>local folder = workspace:WaitForChild("Obstacles")
+local count = 0
+
+for _, obj in folder:GetChildren() do
+	if obj:IsA("BasePart") then
+		obj.BrickColor = BrickColor.random()
+		count += 1
+	end
+end
+
+print("Покрашено деталей:", count)</code></pre>
+      </details>
+    </div>
+    <div class="task">
+      <h3>Задание 3 <span class="level hard">сложное</span></h3>
+      <p>Есть таблица результатов: <code>{Alex = 120, Mia = 340, Bob = 95, Kira = 210}</code>. Выведи топ-3 игрока по очкам: <code>1. Mia — 340</code> и т.д.</p>
+      <details><summary>💡 Подсказка</summary><p>Словарь не отсортировать. Переложи данные в массив вида <code>{ {name = "Alex", score = 120}, ... }</code> и отсортируй его через <code>table.sort</code> со своей функцией сравнения.</p></details>
+      <details><summary>✅ Решение</summary>
+        <pre data-where="ServerScriptService > Script"><code>local results = {Alex = 120, Mia = 340, Bob = 95, Kira = 210}
+
+local list = {}
+for name, score in results do
+	table.insert(list, {name = name, score = score})
+end
+
+table.sort(list, function(a, b)
+	return a.score > b.score
+end)
+
+for i = 1, math.min(3, #list) do
+	print(`{i}. {list[i].name} — {list[i].score}`)
+end</code></pre>
+      </details>
+    </div>
+  </section>
+</article>
+<script src="../js/course.js"></script>
+<script src="../js/app.js"></script>
+</body>
+</html>

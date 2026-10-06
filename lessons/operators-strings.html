@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Операторы, математика и строки</title>
+<link rel="stylesheet" href="../css/style.css">
+</head>
+<body data-lesson="operators-strings">
+<article class="lesson">
+  <h1>Операторы, математика и строки</h1>
+  <p class="lead">Считаем урон, опыт и таймеры, а ещё собираем красивые сообщения для игроков.</p>
+
+  <div class="goals"><strong>🎯 После урока ты сможешь:</strong>
+    <ul>
+      <li>пользоваться арифметикой и библиотекой <code>math</code>;</li>
+      <li>сравнивать значения;</li>
+      <li>склеивать строки, вставлять в них переменные и обрабатывать текст.</li>
+    </ul>
+  </div>
+
+  <h2>Арифметика</h2>
+  <div class="table-wrap"><table>
+    <tr><th>Оператор</th><th>Что делает</th><th>Пример</th><th>Результат</th></tr>
+    <tr><td><code>+</code></td><td>сложение</td><td><code>10 + 3</code></td><td>13</td></tr>
+    <tr><td><code>-</code></td><td>вычитание</td><td><code>10 - 3</code></td><td>7</td></tr>
+    <tr><td><code>*</code></td><td>умножение</td><td><code>10 * 3</code></td><td>30</td></tr>
+    <tr><td><code>/</code></td><td>деление</td><td><code>10 / 4</code></td><td>2.5</td></tr>
+    <tr><td><code>//</code></td><td>деление нацело</td><td><code>10 // 3</code></td><td>3</td></tr>
+    <tr><td><code>%</code></td><td>остаток от деления</td><td><code>10 % 3</code></td><td>1</td></tr>
+    <tr><td><code>^</code></td><td>степень</td><td><code>2 ^ 3</code></td><td>8</td></tr>
+  </table></div>
+  <p>Есть короткие формы: <code>+=</code>, <code>-=</code>, <code>*=</code>, <code>/=</code>, <code>//=</code>, <code>%=</code>, <code>^=</code>, <code>..=</code>.</p>
+  <p>Порядок как в математике: сначала <code>^</code>, потом <code>* / // %</code>, потом <code>+ -</code>. Скобки меняют порядок.</p>
+
+  <h3>Где это в играх</h3>
+  <pre data-where="ServerScriptService > Script"><code>local baseDamage = 20
+local critMultiplier = 1.5
+local damage = baseDamage * critMultiplier   --> 30
+
+local totalSeconds = 135
+local minutes = totalSeconds // 60           --> 2
+local seconds = totalSeconds % 60            --> 15
+print("Осталось", minutes, "мин", seconds, "сек")
+
+-- Остаток удобен для «каждого N-го»: чётное или нечётное?
+local wave = 4
+print(wave % 2 == 0)                         --> true, волна чётная</code></pre>
+
+  <h2>Библиотека math</h2>
+  <pre data-where="ServerScriptService > Script"><code>print(math.floor(3.7))      --> 3   округление вниз
+print(math.ceil(3.2))       --> 4   округление вверх
+print(math.round(3.5))      --> 4   обычное округление
+print(math.abs(-10))        --> 10  модуль (без минуса)
+print(math.max(5, 12, 8))   --> 12  наибольшее
+print(math.min(5, 12, 8))   --> 5   наименьшее
+print(math.clamp(150, 0, 100)) --> 100 «зажать» в диапазон
+print(math.sqrt(16))        --> 4   квадратный корень
+print(math.pi)              --> 3.14159...
+print(math.random(1, 6))    --> случайное целое от 1 до 6 (кубик)
+print(math.random())        --> случайное дробное от 0 до 1</code></pre>
+  <div class="note tip"><p><code>math.clamp</code> очень полезен в играх: здоровье не должно уходить ниже 0 и выше максимума. <code>health = math.clamp(health + heal, 0, maxHealth)</code>.</p></div>
+
+  <h2>Сравнение</h2>
+  <p>Результат сравнения — <code>true</code> или <code>false</code>.</p>
+  <div class="table-wrap"><table>
+    <tr><th>Оператор</th><th>Значение</th><th>Пример</th></tr>
+    <tr><td><code>==</code></td><td>равно</td><td><code>coins == 100</code></td></tr>
+    <tr><td><code>~=</code></td><td>не равно (в Luau именно так, не <code>!=</code>)</td><td><code>team ~= "Red"</code></td></tr>
+    <tr><td><code>&gt;</code> <code>&lt;</code></td><td>больше, меньше</td><td><code>health &lt; 20</code></td></tr>
+    <tr><td><code>&gt;=</code> <code>&lt;=</code></td><td>больше или равно, меньше или равно</td><td><code>level &gt;= 10</code></td></tr>
+  </table></div>
+  <div class="note warn"><p>Не путай <code>=</code> (присвоить) и <code>==</code> (сравнить). <code>if coins = 100 then</code> — ошибка.</p></div>
+
+  <h2>Строки</h2>
+  <h3>Склеивание: <code>..</code></h3>
+  <pre data-where="ServerScriptService > Script"><code>local name = "Alex"
+local coins = 250
+local message = "Игрок " .. name .. " собрал " .. coins .. " монет"
+print(message) --> Игрок Alex собрал 250 монет</code></pre>
+
+  <h3>Интерполяция: строки с обратными кавычками</h3>
+  <p>В Luau есть удобный способ вставлять переменные прямо в текст. Строка пишется в обратных кавычках <code>`</code>, а значения подставляются в фигурных скобках:</p>
+  <pre data-where="ServerScriptService > Script"><code>local name = "Alex"
+local coins = 250
+print(`Игрок {name} собрал {coins} монет`)
+print(`Через год будет {coins * 12} монет`)  -- внутри скобок можно считать</code></pre>
+  <p>Так короче и меньше шансов забыть пробел. В современном коде на Roblox пишут именно так.</p>
+
+  <h3>Полезные функции для строк</h3>
+  <pre data-where="ServerScriptService > Script"><code>local text = "Hello Roblox"
+
+print(#text)                         --> 12  длина строки
+print(string.upper(text))            --> HELLO ROBLOX
+print(text:lower())                  --> hello roblox  (так тоже можно, через двоеточие)
+print(text:sub(1, 5))                --> Hello  символы с 1 по 5
+print(("ab"):rep(3))                 --> ababab  повторить строку
+print(text:find("Roblox"))           --> 7 12  где нашлось
+print(text:gsub("Roblox", "World"))  --> Hello World 1  замена (и сколько замен)
+
+local parts = string.split("меч,щит,лук", ",")
+print(parts[1], parts[2], parts[3])   --> меч щит лук
+
+print(string.format("%.1f%%", 87.456)) --> 87.5%  форматирование</code></pre>
+  <div class="note warn"><p>Нумерация символов в Luau начинается с <b>1</b>, а не с 0, как во многих языках. С таблицами так же.</p></div>
+  <div class="note info"><p>Функции вроде <code>upper</code> и <code>sub</code> работают с латиницей. Русские буквы занимают несколько байт, поэтому <code>#"Привет"</code> вернёт 12, а не 6. Для подсчёта символов с кириллицей есть <code>utf8.len("Привет")</code>.</p></div>
+
+  <h2>Пример: таймер раунда</h2>
+  <pre data-where="ServerScriptService > Script «RoundTimer»"><code>local roundTime = 95
+
+local minutes = roundTime // 60
+local seconds = roundTime % 60
+-- %02d — число минимум из 2 цифр, недостающие заполняются нулём: 5 → 05
+local text = string.format("%d:%02d", minutes, seconds)
+
+print("До конца раунда: " .. text) --> До конца раунда: 1:35</code></pre>
+
+  <section class="quiz">
+    <h2>🧠 Проверь себя</h2>
+    <div class="q" data-correct="1">
+      <p>Чему равно <code>17 % 5</code>?</p>
+      <ol><li>3.4</li><li>2</li><li>3</li><li>85</li></ol>
+      <p class="explain">17 = 5 × 3 + <b>2</b>. Оператор % возвращает остаток.</p>
+    </div>
+    <div class="q" data-correct="3">
+      <p>Как записать «не равно» в Luau?</p>
+      <ol><li><code>!=</code></li><li><code>&lt;&gt;</code></li><li><code>=/=</code></li><li><code>~=</code></li></ol>
+      <p class="explain">В Luau «не равно» пишется <code>~=</code>.</p>
+    </div>
+    <div class="q" data-correct="0">
+      <p>Что выведет <code>print(`HP: {50 + 25}`)</code>?</p>
+      <ol><li>HP: 75</li><li>HP: {50 + 25}</li><li>HP: 50 + 25</li><li>Ошибку</li></ol>
+      <p class="explain">В строках с обратными кавычками выражение в фигурных скобках вычисляется и подставляется.</p>
+    </div>
+    <div class="q" data-correct="2">
+      <p>Что вернёт <code>math.clamp(-20, 0, 100)</code>?</p>
+      <ol><li>-20</li><li>100</li><li>0</li><li>80</li></ol>
+      <p class="explain">-20 меньше нижней границы, поэтому результат «прижимается» к 0.</p>
+    </div>
+  </section>
+
+  <section class="tasks">
+    <h2>📚 Задания</h2>
+    <div class="task">
+      <h3>Задание 1 <span class="level easy">лёгкое</span></h3>
+      <p>Брось два кубика (<code>math.random(1, 6)</code>) и выведи сообщение вида <code>Выпало 3 и 5, сумма 8</code>. Используй интерполяцию.</p>
+      <details><summary>✅ Решение</summary>
+        <pre data-where="ServerScriptService > Script"><code>local a = math.random(1, 6)
+local b = math.random(1, 6)
+print(`Выпало {a} и {b}, сумма {a + b}`)</code></pre>
+      </details>
+    </div>
+    <div class="task">
+      <h3>Задание 2 <span class="level mid">среднее</span></h3>
+      <p>У игрока 340 опыта. Каждый уровень стоит 100 опыта. Посчитай текущий уровень (начиная с 1), сколько опыта набрано на этом уровне и сколько процентов до следующего. Выведи: <code>Уровень 4, опыт 40/100 (40%)</code>.</p>
+      <details><summary>💡 Подсказка</summary><p>Уровень = <code>xp // 100 + 1</code>, остаток = <code>xp % 100</code>.</p></details>
+      <details><summary>✅ Решение</summary>
+        <pre data-where="ServerScriptService > Script"><code>local XP_PER_LEVEL = 100
+local xp = 340
+
+local level = xp // XP_PER_LEVEL + 1
+local current = xp % XP_PER_LEVEL
+local percent = math.floor(current / XP_PER_LEVEL * 100)
+
+print(`Уровень {level}, опыт {current}/{XP_PER_LEVEL} ({percent}%)`)</code></pre>
+      </details>
+    </div>
+    <div class="task">
+      <h3>Задание 3 <span class="level mid">среднее</span></h3>
+      <p>Есть строка с командой из чата: <code>"/give Sword 3"</code>. Разбей её через <code>string.split</code> по пробелу и выведи: <code>Команда: give, предмет: Sword, количество: 3</code>. Количество превращай в число через <code>tonumber</code> и проверь, что это действительно number.</p>
+      <details><summary>✅ Решение</summary>
+        <pre data-where="ServerScriptService > Script"><code>local msg = "/give Sword 3"
+local parts = string.split(msg, " ")
+
+local command = parts[1]:sub(2) -- убираем «/»
+local item = parts[2]
+local amount = tonumber(parts[3])
+
+print(`Команда: {command}, предмет: {item}, количество: {amount}`)
+print(typeof(amount)) --> number</code></pre>
+      </details>
+    </div>
+  </section>
+</article>
+<script src="../js/course.js"></script>
+<script src="../js/app.js"></script>
+</body>
+</html>

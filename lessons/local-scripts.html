@@ -1,0 +1,285 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LocalScript: клавиши, камера, локальный игрок</title>
+<link rel="stylesheet" href="../css/style.css">
+</head>
+<body data-lesson="local-scripts">
+<article class="lesson">
+  <h1>LocalScript: клавиши, камера, локальный игрок</h1>
+  <p class="lead">Клиент отвечает за всё, что связано с ощущением от игры: управление, камера, отзывчивость. Разберём главные инструменты LocalScript.</p>
+
+  <div class="goals"><strong>🎯 После урока ты сможешь:</strong>
+    <ul>
+      <li>получать LocalPlayer и его персонажа на клиенте;</li>
+      <li>обрабатывать клавиатуру, мышь и тач через <code>UserInputService</code> и <code>ContextActionService</code>;</li>
+      <li>управлять камерой;</li>
+      <li>выбирать между StarterPlayerScripts и StarterCharacterScripts.</li>
+    </ul>
+  </div>
+
+  <h2>LocalPlayer и персонаж</h2>
+  <pre data-where="StarterPlayer > StarterPlayerScripts > LocalScript"><code>local Players = game:GetService("Players")
+local player = Players.LocalPlayer
+
+-- Персонаж мог ещё не появиться, поэтому ждём
+local character = player.Character or player.CharacterAdded:Wait()
+local humanoid = character:WaitForChild("Humanoid")
+
+print("Я", player.Name, "здоровье:", humanoid.Health)</code></pre>
+  <p>Запись <code>player.Character or player.CharacterAdded:Wait()</code> означает: «возьми персонажа, а если его ещё нет, дождись появления». Это стандартная строчка, запомни её.</p>
+
+  <h2>StarterPlayerScripts или StarterCharacterScripts?</h2>
+  <div class="table-wrap"><table>
+    <tr><th></th><th>StarterPlayerScripts</th><th>StarterCharacterScripts</th></tr>
+    <tr><td>Когда запускается</td><td>Один раз при входе</td><td>При каждом появлении персонажа</td></tr>
+    <tr><td>Куда копируется</td><td>Player › PlayerScripts</td><td>Внутрь модели персонажа</td></tr>
+    <tr><td>Что с персонажем после смерти</td><td>Переменная <code>character</code> устареет, нужно подписываться на CharacterAdded</td><td>Скрипт удаляется вместе со старым персонажем и запускается заново в новом</td></tr>
+    <tr><td>Хорошо для</td><td>Камера, интерфейс, общие системы клиента, музыка</td><td>Бег, двойной прыжок, эффекты на теле</td></tr>
+  </table></div>
+  <p>В StarterCharacterScripts персонаж — это просто <code>script.Parent</code>:</p>
+  <pre data-where="StarterPlayer > StarterCharacterScripts > LocalScript"><code>local character = script.Parent
+local humanoid = character:WaitForChild("Humanoid")
+print("Новый персонаж! Скорость:", humanoid.WalkSpeed)</code></pre>
+
+  <h2>UserInputService — клавиатура и мышь</h2>
+  <pre data-where="StarterPlayerScripts > LocalScript «Input»"><code>local UserInputService = game:GetService("UserInputService")
+
+UserInputService.InputBegan:Connect(function(input, gameProcessedEvent)
+	-- true, если игрок печатает в чате или нажал кнопку интерфейса
+	if gameProcessedEvent then return end
+
+	if input.KeyCode == Enum.KeyCode.E then
+		print("Нажата E")
+	elseif input.UserInputType == Enum.UserInputType.MouseButton1 then
+		print("Левый клик")
+	end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+	if input.KeyCode == Enum.KeyCode.E then
+		print("Отпущена E")
+	end
+end)</code></pre>
+  <div class="note warn"><p>Всегда проверяй <code>gameProcessedEvent</code>! Иначе игрок напишет в чат «hello», и сработают способности на H, E, L и O.</p></div>
+
+  <h3>Бег на Shift</h3>
+  <pre data-where="StarterPlayer > StarterCharacterScripts > LocalScript «Sprint»"><code>local UserInputService = game:GetService("UserInputService")
+
+local character = script.Parent
+local humanoid = character:WaitForChild("Humanoid")
+
+local WALK_SPEED = 16
+local RUN_SPEED = 28
+
+UserInputService.InputBegan:Connect(function(input, processed)
+	if processed then return end
+	if input.KeyCode == Enum.KeyCode.LeftShift then
+		humanoid.WalkSpeed = RUN_SPEED
+	end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+	if input.KeyCode == Enum.KeyCode.LeftShift then
+		humanoid.WalkSpeed = WALK_SPEED
+	end
+end)</code></pre>
+  <p>Почему это работает из LocalScript? Мы прошли в прошлом уроке: физикой своего персонажа управляет клиент, поэтому изменение WalkSpeed действует сразу и видно всем.</p>
+
+  <h3>Проверка «зажата ли клавиша»</h3>
+  <pre data-where="StarterPlayerScripts > LocalScript"><code>local UserInputService = game:GetService("UserInputService")
+if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
+	print("Пробел зажат")
+end
+
+print("Есть тач-экран:", UserInputService.TouchEnabled)
+print("Есть клавиатура:", UserInputService.KeyboardEnabled)</code></pre>
+
+  <h2>ContextActionService — действия для всех устройств</h2>
+  <p>У игроков на телефоне нет клавиши E. <b>ContextActionService</b> привязывает действие сразу к клавише, кнопке геймпада и <b>создаёт кнопку на экране телефона</b>:</p>
+  <pre data-where="StarterPlayer > StarterCharacterScripts > LocalScript «Dash»"><code>local ContextActionService = game:GetService("ContextActionService")
+
+local character = script.Parent
+local root = character:WaitForChild("HumanoidRootPart")
+local canDash = true
+
+local function dash(actionName, inputState, inputObject)
+	if inputState ~= Enum.UserInputState.Begin then return end
+	if not canDash then return end
+	canDash = false
+
+	-- Рывок вперёд, туда, куда смотрит персонаж
+	root.AssemblyLinearVelocity = root.CFrame.LookVector * 80 + Vector3.new(0, 10, 0)
+
+	task.wait(1.5)
+	canDash = true
+end
+
+ContextActionService:BindAction("Dash", dash, true, Enum.KeyCode.Q, Enum.KeyCode.ButtonX)
+ContextActionService:SetTitle("Dash", "Рывок")</code></pre>
+  <p>Третий аргумент <code>true</code> создаёт кнопку на тач-экране. Убрать привязку можно через <code>UnbindAction("Dash")</code>.</p>
+
+  <h2>Камера</h2>
+  <p>Камера у каждого игрока своя, поэтому управлять ей можно <b>только из LocalScript</b>: <code>workspace.CurrentCamera</code>.</p>
+  <pre data-where="StarterPlayerScripts > LocalScript «CameraZoom»"><code>local Players = game:GetService("Players")
+local player = Players.LocalPlayer
+
+-- Ограничить отдаление камеры
+player.CameraMaxZoomDistance = 20
+player.CameraMinZoomDistance = 5
+
+-- Изменить поле зрения (FOV)
+local camera = workspace.CurrentCamera
+camera.FieldOfView = 80</code></pre>
+
+  <h3>Своя камера: вид сверху</h3>
+  <pre data-where="StarterPlayerScripts > LocalScript «TopDownCamera»"><code>local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+
+local player = Players.LocalPlayer
+local camera = workspace.CurrentCamera
+local OFFSET = Vector3.new(0, 40, 15)
+
+camera.CameraType = Enum.CameraType.Scriptable  -- забираем управление у Roblox
+
+RunService.RenderStepped:Connect(function()
+	local character = player.Character
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	if root then
+		local camPos = root.Position + OFFSET
+		camera.CFrame = CFrame.lookAt(camPos, root.Position)
+	end
+end)</code></pre>
+  <div class="note info"><p>Чтобы вернуть обычную камеру: <code>camera.CameraType = Enum.CameraType.Custom</code>.</p></div>
+
+  <h2>Мышь в 3D-мире</h2>
+  <p>Узнать, куда в мире указывает курсор, нужно для стрельбы, строительства и выделения. Делается это лучом (raycast) из камеры:</p>
+  <pre data-where="StarterPlayerScripts > LocalScript «MouseTarget»"><code>local UserInputService = game:GetService("UserInputService")
+local camera = workspace.CurrentCamera
+
+local function getMouseHit()
+	local mousePos = UserInputService:GetMouseLocation()
+	local ray = camera:ViewportPointToRay(mousePos.X, mousePos.Y)
+	local result = workspace:Raycast(ray.Origin, ray.Direction * 500)
+	return result  -- nil, если ни во что не попали
+end
+
+UserInputService.InputBegan:Connect(function(input, processed)
+	if processed then return end
+	if input.UserInputType == Enum.UserInputType.MouseButton1 then
+		local hit = getMouseHit()
+		if hit then
+			print("Клик по", hit.Instance.Name, "в точке", hit.Position)
+		end
+	end
+end)</code></pre>
+  <p>В старых туториалах используют <code>player:GetMouse()</code> и <code>mouse.Hit</code>. Это работает, но устарело.</p>
+
+  <section class="quiz">
+    <h2>🧠 Проверь себя</h2>
+    <div class="q" data-correct="2">
+      <p>Зачем проверять <code>gameProcessedEvent</code> в InputBegan?</p>
+      <ol><li>Чтобы код работал на сервере</li><li>Чтобы ускорить игру</li><li>Чтобы не реагировать на нажатия, когда игрок печатает в чате или жмёт интерфейс</li><li>Без него событие не сработает</li></ol>
+      <p class="explain">gameProcessedEvent = true, если нажатие уже обработала сама игра (чат, кнопки GUI).</p>
+    </div>
+    <div class="q" data-correct="1">
+      <p>Куда положить LocalScript двойного прыжка, чтобы он работал после каждой смерти без лишнего кода?</p>
+      <ol><li>StarterPlayerScripts</li><li>StarterCharacterScripts</li><li>ServerScriptService</li><li>ReplicatedStorage</li></ol>
+      <p class="explain">Скрипт будет копироваться в каждого нового персонажа.</p>
+    </div>
+    <div class="q" data-correct="0">
+      <p>Что делает <code>player.Character or player.CharacterAdded:Wait()</code>?</p>
+      <ol><li>Возвращает персонажа, при необходимости дожидаясь его появления</li><li>Создаёт нового персонажа</li><li>Убивает персонажа</li><li>Ждёт смерти персонажа</li></ol>
+      <p class="explain">Если персонаж уже есть, or вернёт его сразу. Если нет (nil), выполнится Wait().</p>
+    </div>
+    <div class="q" data-correct="3">
+      <p>Чем ContextActionService лучше UserInputService для способностей?</p>
+      <ol><li>Он работает на сервере</li><li>Он быстрее</li><li>Он защищает от читеров</li><li>Он может сам создать кнопку для игроков на телефоне</li></ol>
+      <p class="explain">BindAction с третьим аргументом true создаёт тач-кнопку.</p>
+    </div>
+  </section>
+
+  <section class="tasks">
+    <h2>📚 Задания</h2>
+    <div class="task">
+      <h3>Задание 1 <span class="level easy">лёгкое</span></h3>
+      <p>Сделай так, чтобы на клавишу <kbd>F</kbd> персонаж переключал режим «присед»: скорость 8 и прыжок 0, при повторном нажатии всё возвращается.</p>
+      <details><summary>✅ Решение</summary>
+        <pre data-where="StarterCharacterScripts > LocalScript «Crouch»"><code>local UserInputService = game:GetService("UserInputService")
+local humanoid = script.Parent:WaitForChild("Humanoid")
+local crouching = false
+
+UserInputService.InputBegan:Connect(function(input, processed)
+	if processed then return end
+	if input.KeyCode ~= Enum.KeyCode.F then return end
+
+	crouching = not crouching
+	humanoid.WalkSpeed = if crouching then 8 else 16
+	humanoid.JumpPower = if crouching then 0 else 50
+end)</code></pre>
+      </details>
+    </div>
+    <div class="task">
+      <h3>Задание 2 <span class="level mid">среднее</span></h3>
+      <p>Сделай двойной прыжок: если игрок в воздухе и нажимает пробел ещё раз, он подпрыгивает повторно. Второй прыжок можно сделать только один раз до приземления.</p>
+      <details><summary>💡 Подсказка</summary><p>Используй <code>humanoid.StateChanged</code>: состояние <code>Enum.HumanoidStateType.Landed</code> означает приземление. Второй прыжок: <code>humanoid:ChangeState(Enum.HumanoidStateType.Jumping)</code>. Событие нажатия прыжка: <code>UserInputService.JumpRequest</code>.</p></details>
+      <details><summary>✅ Решение</summary>
+        <pre data-where="StarterCharacterScripts > LocalScript «DoubleJump»"><code>local UserInputService = game:GetService("UserInputService")
+local humanoid = script.Parent:WaitForChild("Humanoid")
+
+local canDoubleJump = false
+local hasDoubleJumped = false
+
+humanoid.StateChanged:Connect(function(_, newState)
+	if newState == Enum.HumanoidStateType.Landed then
+		canDoubleJump = false
+		hasDoubleJumped = false
+	elseif newState == Enum.HumanoidStateType.Freefall then
+		task.wait(0.15)          -- небольшая задержка после первого прыжка
+		canDoubleJump = true
+	end
+end)
+
+UserInputService.JumpRequest:Connect(function()
+	if canDoubleJump and not hasDoubleJumped then
+		hasDoubleJumped = true
+		humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+	end
+end)</code></pre>
+      </details>
+    </div>
+    <div class="task">
+      <h3>Задание 3 <span class="level hard">сложное</span></h3>
+      <p>Сделай «бинокль»: пока зажата правая кнопка мыши, FOV камеры плавно (Tween) уменьшается до 20. Когда кнопку отпустили, возвращается к 70.</p>
+      <details><summary>✅ Решение</summary>
+        <pre data-where="StarterPlayerScripts > LocalScript «Binoculars»"><code>local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+local camera = workspace.CurrentCamera
+local info = TweenInfo.new(0.3, Enum.EasingStyle.Quad)
+
+local function setFov(value)
+	TweenService:Create(camera, info, {FieldOfView = value}):Play()
+end
+
+UserInputService.InputBegan:Connect(function(input, processed)
+	if processed then return end
+	if input.UserInputType == Enum.UserInputType.MouseButton2 then
+		setFov(20)
+	end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton2 then
+		setFov(70)
+	end
+end)</code></pre>
+      </details>
+    </div>
+  </section>
+</article>
+<script src="../js/course.js"></script>
+<script src="../js/app.js"></script>
+</body>
+</html>

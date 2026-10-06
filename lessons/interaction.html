@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ClickDetector, ProximityPrompt и TweenService</title>
+<link rel="stylesheet" href="../css/style.css">
+</head>
+<body data-lesson="interaction">
+<article class="lesson">
+  <h1>ClickDetector, ProximityPrompt и TweenService</h1>
+  <p class="lead">Делаем мир интерактивным: кнопки, на которые можно кликнуть, двери с подсказкой «Нажми E» и плавная анимация движения.</p>
+
+  <div class="goals"><strong>🎯 После урока ты сможешь:</strong>
+    <ul>
+      <li>реагировать на клик по детали через ClickDetector;</li>
+      <li>делать взаимодействие «Нажми E» через ProximityPrompt;</li>
+      <li>плавно анимировать двери, лифты и платформы через TweenService;</li>
+      <li>проигрывать звуки.</li>
+    </ul>
+  </div>
+
+  <h2>ClickDetector — клик по детали</h2>
+  <p>Вставь в деталь объект <b>ClickDetector</b>. Курсор над деталью станет рукой, а сервер получит событие клика <b>вместе с игроком, который кликнул</b>.</p>
+  <div class="explorer">
+    <div class="ex-title">Explorer</div>
+    <ul><li class="svc">Workspace<ul><li class="part">Button<ul><li class="other"><span class="hl">ClickDetector</span></li><li class="script">ButtonScript</li></ul></li></ul></li></ul>
+  </div>
+  <pre data-where="Workspace > Button > Script «ButtonScript»"><code>local button = script.Parent
+local clickDetector = button:WaitForChild("ClickDetector")
+
+clickDetector.MaxActivationDistance = 20  -- кликать можно не дальше 20 студов
+
+clickDetector.MouseClick:Connect(function(player)
+	print(player.Name, "нажал кнопку")
+	button.BrickColor = BrickColor.random()
+end)</code></pre>
+  <p>Есть ещё события <code>MouseHoverEnter</code> и <code>MouseHoverLeave</code> для подсветки при наведении.</p>
+
+  <h2>ProximityPrompt — «Нажми E»</h2>
+  <p>Современный способ взаимодействия, который работает на ПК, телефоне и консоли. Вставь в деталь <b>ProximityPrompt</b>:</p>
+  <pre data-where="Workspace > Chest (Part) > Script"><code>local chest = script.Parent
+
+local prompt = Instance.new("ProximityPrompt")
+prompt.ActionText = "Открыть"     -- текст действия
+prompt.ObjectText = "Сундук"       -- название объекта
+prompt.KeyboardKeyCode = Enum.KeyCode.E
+prompt.HoldDuration = 1            -- держать 1 секунду
+prompt.MaxActivationDistance = 10
+prompt.Parent = chest
+
+prompt.Triggered:Connect(function(player)
+	print(player.Name, "открыл сундук!")
+	prompt.Enabled = false         -- больше не открыть
+	chest.BrickColor = BrickColor.new("Bright yellow")
+end)</code></pre>
+  <div class="note tip"><p>ProximityPrompt можно создать в Studio и настроить в Properties, а не кодом. Кодом удобно, когда объектов много.</p></div>
+
+  <h2>TweenService — плавная анимация</h2>
+  <p>Если просто присвоить <code>door.Position = ...</code>, дверь мгновенно телепортируется. <b>Tween</b> плавно меняет свойства от текущего значения к новому за заданное время.</p>
+  <pre data-where="ServerScriptService > Script"><code>local TweenService = game:GetService("TweenService")
+local part = workspace:WaitForChild("Platform")
+
+local info = TweenInfo.new(
+	2,                          -- длительность в секундах
+	Enum.EasingStyle.Quad,      -- характер движения
+	Enum.EasingDirection.Out    -- замедление в конце
+)
+
+local goal = {
+	Position = part.Position + Vector3.new(0, 10, 0),
+	Color = Color3.fromRGB(0, 200, 255),
+	Transparency = 0.3,
+}
+
+local tween = TweenService:Create(part, info, goal)
+tween:Play()
+tween.Completed:Wait()   -- дождаться конца анимации
+print("Готово!")</code></pre>
+
+  <h3>Параметры TweenInfo</h3>
+  <pre data-where="Шпаргалка"><code>TweenInfo.new(
+	1,                          -- время
+	Enum.EasingStyle.Sine,      -- Linear, Sine, Quad, Back, Bounce, Elastic...
+	Enum.EasingDirection.InOut, -- In, Out, InOut
+	-1,                         -- повторов (-1 = бесконечно)
+	true,                       -- обратно после каждого прохода
+	0                           -- задержка перед стартом
+)</code></pre>
+  <p>Попробуй разные <code>EasingStyle</code>: <b>Bounce</b> подпрыгивает в конце, <b>Back</b> немного «перелетает», <b>Elastic</b> пружинит.</p>
+
+  <h3>Вечно парящая платформа</h3>
+  <pre data-where="Workspace > Platform > Script"><code>local TweenService = game:GetService("TweenService")
+local platform = script.Parent
+platform.Anchored = true
+
+local info = TweenInfo.new(3, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true)
+local tween = TweenService:Create(platform, info, {
+	Position = platform.Position + Vector3.new(0, 0, 30)
+})
+tween:Play()</code></pre>
+  <div class="note warn"><p>Анимировать через Tween можно только <b>закреплённые</b> (Anchored) детали. Иначе физика будет спорить с анимацией. И игрок не «едет» на платформе, которую двигают через Position. Для движущихся платформ используют CFrame-твины или физические ограничения (PrismaticConstraint).</p></div>
+
+  <h2>Собираем всё: дверь с ProximityPrompt</h2>
+  <div class="explorer">
+    <div class="ex-title">Explorer</div>
+    <ul><li class="svc">Workspace<ul><li class="part">Door <span class="cmt">Anchored = true</span>
+      <ul><li class="other">ProximityPrompt</li><li class="other">Sound <span class="cmt">SoundId = звук двери</span></li><li class="script"><span class="hl">DoorScript</span></li></ul></li></ul></li></ul>
+  </div>
+  <pre data-where="Workspace > Door > Script «DoorScript»"><code>local TweenService = game:GetService("TweenService")
+
+local door = script.Parent
+local prompt = door:WaitForChild("ProximityPrompt")
+local sound = door:FindFirstChild("Sound")
+
+local closedCFrame = door.CFrame
+local openCFrame = closedCFrame * CFrame.new(door.Size.X, 0, 0)  -- сдвиг вбок на ширину двери
+local info = TweenInfo.new(0.8, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+
+local isOpen = false
+local isMoving = false
+
+prompt.ActionText = "Открыть"
+prompt.ObjectText = "Дверь"
+
+prompt.Triggered:Connect(function(player)
+	if isMoving then return end
+	isMoving = true
+
+	isOpen = not isOpen
+	local target = if isOpen then openCFrame else closedCFrame
+	prompt.ActionText = if isOpen then "Закрыть" else "Открыть"
+
+	if sound then sound:Play() end
+	local tween = TweenService:Create(door, info, {CFrame = target})
+	tween:Play()
+	tween.Completed:Wait()
+
+	isMoving = false
+end)</code></pre>
+
+  <h2>Звуки</h2>
+  <pre data-where="Workspace > Part > Script"><code>local sound = Instance.new("Sound")
+sound.SoundId = "rbxassetid://12222216"  -- ID звука из Toolbox / Creator Store
+sound.Volume = 0.5
+sound.Parent = script.Parent   -- звук внутри детали = 3D-звук от детали
+sound:Play()
+
+-- sound.Looped = true      -- зациклить (для музыки)
+-- sound:Stop()</code></pre>
+  <p>Звук внутри детали слышен «из детали» и тише вдали. Звук в SoundService или Workspace слышен одинаково везде. Для фоновой музыки используй SoundService.</p>
+  <div class="note info"><p>ID звуков ищи в <b>Toolbox → Audio</b> или в Creator Store. Нажми правой кнопкой → <b>Copy Asset ID</b>. ID в примере может не работать, подставь свой.</p></div>
+
+  <section class="quiz">
+    <h2>🧠 Проверь себя</h2>
+    <div class="q" data-correct="2">
+      <p>Что передаётся в функцию <code>ProximityPrompt.Triggered</code>?</p>
+      <ol><li>Нажатая клавиша</li><li>Сама деталь</li><li>Игрок, который активировал подсказку</li><li>Ничего</li></ol>
+      <p class="explain">И Triggered, и ClickDetector.MouseClick передают Player. Это удобно для наград.</p>
+    </div>
+    <div class="q" data-correct="0">
+      <p>Как сделать, чтобы твин повторялся бесконечно туда-обратно?</p>
+      <ol><li><code>TweenInfo.new(2, style, dir, -1, true)</code></li><li><code>tween:Play(true)</code></li><li><code>tween.Looped = true</code></li><li>Вызывать Play в while true</li></ol>
+      <p class="explain">Четвёртый параметр — количество повторов (-1 = бесконечно), пятый — reverses.</p>
+    </div>
+    <div class="q" data-correct="3">
+      <p>Зачем в двери переменная <code>isMoving</code>?</p>
+      <ol><li>Чтобы проиграть звук</li><li>Чтобы твин работал</li><li>Без неё дверь не откроется</li><li>Чтобы нельзя было запустить новую анимацию, пока идёт старая</li></ol>
+      <p class="explain">Это тот же debounce, только для анимации.</p>
+    </div>
+    <div class="q" data-correct="1">
+      <p>Какие детали можно спокойно анимировать через TweenService?</p>
+      <ol><li>Любые</li><li>Закреплённые (Anchored)</li><li>Только невидимые</li><li>Только модели</li></ol>
+      <p class="explain">У незакреплённых деталей физика будет мешать анимации.</p>
+    </div>
+  </section>
+
+  <section class="tasks">
+    <h2>📚 Задания</h2>
+    <div class="task">
+      <h3>Задание 1 <span class="level easy">лёгкое</span></h3>
+      <p>Сделай кнопку с ClickDetector, которая при клике включает или выключает свет (PointLight) в лампе неподалёку.</p>
+      <details><summary>✅ Решение</summary>
+        <pre data-where="Workspace > Switch (Part с ClickDetector) > Script"><code>local switch = script.Parent
+local lamp = workspace:WaitForChild("Lamp")
+local light = lamp:WaitForChild("PointLight")
+
+switch.ClickDetector.MouseClick:Connect(function(player)
+	light.Enabled = not light.Enabled
+	lamp.Material = if light.Enabled then Enum.Material.Neon else Enum.Material.Plastic
+end)</code></pre>
+      </details>
+    </div>
+    <div class="task">
+      <h3>Задание 2 <span class="level mid">среднее</span></h3>
+      <p>Сделай «лифт»: платформа и ProximityPrompt «Вверх/Вниз». При активации платформа плавно (Tween, 3 секунды) едет на 30 студов вверх или обратно вниз. Пока едет, подсказка отключена.</p>
+      <details><summary>✅ Решение</summary>
+        <pre data-where="Workspace > Elevator > Script"><code>local TweenService = game:GetService("TweenService")
+local elevator = script.Parent
+elevator.Anchored = true
+
+local prompt = Instance.new("ProximityPrompt")
+prompt.ActionText = "Вверх"
+prompt.Parent = elevator
+
+local bottom = elevator.CFrame
+local top = bottom + Vector3.new(0, 30, 0)
+local isUp = false
+
+prompt.Triggered:Connect(function()
+	prompt.Enabled = false
+	isUp = not isUp
+	local tween = TweenService:Create(elevator, TweenInfo.new(3, Enum.EasingStyle.Sine), {
+		CFrame = if isUp then top else bottom
+	})
+	tween:Play()
+	tween.Completed:Wait()
+	prompt.ActionText = if isUp then "Вниз" else "Вверх"
+	prompt.Enabled = true
+end)</code></pre>
+      </details>
+    </div>
+    <div class="task">
+      <h3>Задание 3 <span class="level hard">сложное</span></h3>
+      <p>Сделай сундук с наградой: ProximityPrompt (держать 2 секунды) даёт игроку +50 Coins в leaderstats. Каждый игрок может открыть сундук раз в 30 секунд. После открытия сундук «подпрыгивает» твином со стилем Bounce.</p>
+      <details><summary>✅ Решение</summary>
+        <pre data-where="Workspace > Chest > Script"><code>local TweenService = game:GetService("TweenService")
+local chest = script.Parent
+local COOLDOWN = 30
+local REWARD = 50
+local lastOpen = {}
+
+local prompt = Instance.new("ProximityPrompt")
+prompt.ActionText = "Открыть"
+prompt.ObjectText = "Сундук"
+prompt.HoldDuration = 2
+prompt.Parent = chest
+
+local baseCFrame = chest.CFrame
+
+prompt.Triggered:Connect(function(player)
+	local now = os.clock()
+	if lastOpen[player] and now - lastOpen[player] &lt; COOLDOWN then
+		local left = math.ceil(COOLDOWN - (now - lastOpen[player]))
+		print(`{player.Name}: подожди ещё {left} сек.`)
+		return
+	end
+	lastOpen[player] = now
+
+	local stats = player:FindFirstChild("leaderstats")
+	if stats and stats:FindFirstChild("Coins") then
+		stats.Coins.Value += REWARD
+	end
+
+	chest.CFrame = baseCFrame + Vector3.new(0, 3, 0)
+	TweenService:Create(chest, TweenInfo.new(0.8, Enum.EasingStyle.Bounce), {CFrame = baseCFrame}):Play()
+end)
+
+game:GetService("Players").PlayerRemoving:Connect(function(player)
+	lastOpen[player] = nil
+end)</code></pre>
+      </details>
+    </div>
+  </section>
+</article>
+<script src="../js/course.js"></script>
+<script src="../js/app.js"></script>
+</body>
+</html>

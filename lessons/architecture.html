@@ -1,0 +1,331 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Архитектура, безопасность и отладка</title>
+<link rel="stylesheet" href="../css/style.css">
+</head>
+<body data-lesson="architecture">
+<article class="lesson">
+  <h1>Архитектура, безопасность и отладка</h1>
+  <p class="lead">Ты знаешь все кирпичики. Теперь разберёмся, как строить из них большой проект так, чтобы через месяц в нём можно было разобраться, чтобы его не ломали читеры и чтобы игра не тормозила.</p>
+
+  <div class="goals"><strong>🎯 После урока ты сможешь:</strong>
+    <ul>
+      <li>организовать проект: точки входа, сервисы и контроллеры на модулях;</li>
+      <li>управлять множеством объектов через теги (CollectionService);</li>
+      <li>применять правила безопасности и производительности;</li>
+      <li>искать баги: точки останова, консоль разработчика, assert.</li>
+    </ul>
+  </div>
+
+  <h2>Проблема: «скрипт в каждой детали»</h2>
+  <p>Начинающие кладут скрипт в каждую лаву, каждую монету и каждую дверь. Через месяц в игре 300 одинаковых скриптов. Нужно поменять урон лавы, и правку приходится делать 300 раз. Плюс каждый скрипт расходует ресурсы.</p>
+  <p>Профессиональный подход: <b>мало скриптов, много модулей</b>.</p>
+
+  <h2>Структура проекта</h2>
+  <div class="explorer">
+    <div class="ex-title">Explorer</div>
+    <ul>
+      <li class="svc">ReplicatedStorage
+        <ul>
+          <li class="folder">Shared <span class="cmt">— общий код</span>
+            <ul><li class="module">Config</li><li class="module">Types</li><li class="module">Utils</li></ul>
+          </li>
+          <li class="folder">Remotes<ul><li class="remote">...</li></ul></li>
+        </ul>
+      </li>
+      <li class="svc">ServerScriptService
+        <ul>
+          <li class="script"><span class="hl">ServerMain</span> <span class="cmt">— единственный Script</span></li>
+          <li class="folder">Services
+            <ul><li class="module">DataService</li><li class="module">CombatService</li><li class="module">ShopService</li><li class="module">HazardService</li></ul>
+          </li>
+        </ul>
+      </li>
+      <li class="svc">StarterPlayer<ul><li class="folder">StarterPlayerScripts
+        <ul>
+          <li class="local"><span class="hl">ClientMain</span> <span class="cmt">— единственный LocalScript</span></li>
+          <li class="folder">Controllers
+            <ul><li class="module">InputController</li><li class="module">UIController</li><li class="module">CameraController</li></ul>
+          </li>
+        </ul></li></ul>
+      </li>
+    </ul>
+  </div>
+  <ul>
+    <li><b>Сервисы</b> (на сервере) — модули, каждый отвечает за одну систему: данные, бой, магазин.</li>
+    <li><b>Контроллеры</b> (на клиенте) — то же самое для клиента: ввод, интерфейс, камера.</li>
+    <li><b>Точка входа</b> — один Script и один LocalScript. Они только загружают и запускают модули.</li>
+  </ul>
+
+  <h3>Точка входа</h3>
+  <pre data-where="ServerScriptService > Script «ServerMain»"><code>local ServerScriptService = game:GetService("ServerScriptService")
+local servicesFolder = ServerScriptService:WaitForChild("Services")
+
+-- 1. Загружаем все сервисы
+local services = {}
+for _, module in servicesFolder:GetChildren() do
+	if module:IsA("ModuleScript") then
+		services[module.Name] = require(module)
+	end
+end
+
+-- 2. Инициализируем (Init — подготовка, без зависимостей друг от друга)
+for name, service in services do
+	if service.Init then
+		service:Init(services)
+	end
+end
+
+-- 3. Запускаем (Start — здесь сервисы могут обращаться друг к другу)
+for name, service in services do
+	if service.Start then
+		task.spawn(service.Start, service)
+	end
+end
+
+print("Сервер запущен. Сервисов:", #servicesFolder:GetChildren())</code></pre>
+
+  <h3>Пример сервиса</h3>
+  <pre data-where="ServerScriptService > Services > ModuleScript «HazardService»"><code>local CollectionService = game:GetService("CollectionService")
+
+local HazardService = {}
+local DAMAGE = 20
+local cooldowns = {}
+
+local function setupHazard(part)
+	part.Touched:Connect(function(hit)
+		local humanoid = hit.Parent:FindFirstChildOfClass("Humanoid")
+		if not humanoid then return end
+		if cooldowns[humanoid] then return end
+		cooldowns[humanoid] = true
+		humanoid:TakeDamage(DAMAGE)
+		task.delay(0.5, function()
+			cooldowns[humanoid] = nil
+		end)
+	end)
+end
+
+function HazardService:Init(services)
+	self.services = services   -- ссылка на другие сервисы, если понадобятся
+end
+
+function HazardService:Start()
+	for _, part in CollectionService:GetTagged("Hazard") do
+		setupHazard(part)
+	end
+	CollectionService:GetInstanceAddedSignal("Hazard"):Connect(setupHazard)
+end
+
+return HazardService</code></pre>
+
+  <h2>CollectionService: теги вместо скриптов</h2>
+  <p>Тег — это метка на объекте. Повесь тег <code>Hazard</code> на 300 деталей лавы, и один сервис выше будет обрабатывать их все, включая появившиеся позже.</p>
+  <p>Как поставить тег в Studio: выбери деталь → в Properties внизу раздел <b>Tags</b> → <b>+</b> → введи <code>Hazard</code>. Кодом:</p>
+  <pre data-where="ServerScriptService > Script"><code>local CollectionService = game:GetService("CollectionService")
+
+local part = workspace.Lava
+CollectionService:AddTag(part, "Hazard")      -- или part:AddTag("Hazard")
+print(part:HasTag("Hazard"))                   --> true
+print(#CollectionService:GetTagged("Hazard"))  -- сколько всего объектов с тегом</code></pre>
+  <div class="note tip"><p>Теги + атрибуты = мощная связка. Тег говорит, <b>что это</b> (Hazard), атрибут — <b>с какими параметрами</b> (<code>Damage = 50</code>). Дизайнер уровней настраивает объекты в Studio, а код не меняется.</p></div>
+
+  <h2>Безопасность: итоговый чек-лист</h2>
+  <ol>
+    <li><b>Сервер — единственный источник правды.</b> Деньги, урон, инвентарь, победы считает только он.</li>
+    <li><b>Каждый RemoteEvent — потенциальная дыра.</b> Проверяй тип, диапазон, существование, права, дистанцию, частоту.</li>
+    <li><b>Клиент просит, а не сообщает результат.</b> Не «я убил X», а «я выстрелил сюда».</li>
+    <li><b>Секреты не кладут в ReplicatedStorage</b>: промокоды, админ-логику, серверные модули.</li>
+    <li><b>Проверяй физику персонажа</b>, если она важна: скорость, телепорты, позиция при взаимодействии.</li>
+    <li><b>Не делай Remote «на все случаи»</b> вроде <code>SetValue(object, property, value)</code>. Это прямой подарок читерам.</li>
+    <li><b>Админ-команды</b> проверяй по UserId на сервере, а не по нику или по наличию кнопки на клиенте.</li>
+  </ol>
+
+  <h2>Производительность</h2>
+  <div class="table-wrap"><table>
+    <tr><th>❌ Медленно</th><th>✅ Быстро</th></tr>
+    <tr><td><code>while true do ... task.wait() end</code> на сотню объектов</td><td>Один Heartbeat на все объекты или события вместо постоянных проверок</td></tr>
+    <tr><td>Проверять <code>coins.Value</code> в цикле, чтобы обновить UI</td><td><code>coins.Changed:Connect(...)</code></td></tr>
+    <tr><td>Сложная анимация и эффекты на сервере</td><td>Визуальные эффекты на клиенте (сервер говорит «покажи», клиент рисует)</td></tr>
+    <tr><td><code>workspace:GetDescendants()</code> каждый кадр</td><td>Найти объекты один раз и сохранить, или использовать теги</td></tr>
+    <tr><td>Remote на каждый кадр с клиента</td><td>Отправлять только изменения и не чаще, чем нужно</td></tr>
+    <tr><td>Тысячи незакреплённых деталей</td><td>Anchored для всего, что не должно падать</td></tr>
+  </table></div>
+
+  <h3>Утечки памяти</h3>
+  <p>Утечка — когда ненужные данные продолжают жить. Сервер работает часами, и утечки копятся до лагов и краша.</p>
+  <ul>
+    <li>Таблицы с ключом-игроком <b>чисть в PlayerRemoving</b>.</li>
+    <li>Соединения с «вечными» событиями (RunService, сервисы) <b>отключай</b>, когда объект больше не нужен.</li>
+    <li>Удаляй объекты через <code>Destroy()</code>, а не просто <code>Parent = nil</code>: Destroy отключает все события объекта.</li>
+  </ul>
+
+  <h2>Отладка</h2>
+  <h3>print, warn, error, assert</h3>
+  <pre data-where="Любой скрипт"><code>print("Обычное сообщение")
+warn("Предупреждение — жёлтое, легко найти глазами")
+
+local function setLevel(level)
+	assert(typeof(level) == "number", "level должен быть числом")  -- упадёт, если условие ложно
+	if level &lt; 1 then
+		error("Уровень не может быть меньше 1")                    -- остановить с ошибкой
+	end
+end</code></pre>
+  <div class="note tip"><p>Используй <code>assert</code> и <code>error</code> для «невозможных» ситуаций. Лучше упасть сразу с понятным сообщением, чем через 10 минут непонятно где.</p></div>
+
+  <h3>Точки останова (Breakpoints)</h3>
+  <ol>
+    <li>Кликни слева от номера строки в редакторе. Появится красная точка.</li>
+    <li>Запусти игру. Когда код дойдёт до этой строки, игра <b>замрёт</b>.</li>
+    <li>Наведи мышь на переменные, чтобы увидеть их значения. Окно <b>Watch</b> покажет выбранные переменные, <b>Call Stack</b> — кто вызвал функцию.</li>
+    <li>Кнопки <b>Step Into / Step Over</b> выполняют код по одной строке.</li>
+  </ol>
+
+  <h3>Консоль разработчика</h3>
+  <p>В запущенной игре (и в Studio, и на настоящем сервере) нажми <kbd>F9</kbd>. Там видны ошибки клиента и сервера, использование памяти, сетевая нагрузка. Это главный инструмент для поиска багов, которые появляются только в опубликованной игре.</p>
+
+  <h3>Алгоритм поиска бага</h3>
+  <ol>
+    <li>Посмотри Output: есть ли красная ошибка? Прочитай её целиком, там написаны скрипт и строка.</li>
+    <li>Нет ошибки? Проверь, <b>запустился ли скрипт</b>: поставь <code>print("старт")</code> первой строкой. Если не вывелось, скрипт лежит не там или это не тот тип скрипта.</li>
+    <li>Скрипт работает, но не так? Расставь <code>print</code> с переменными на каждом шаге и найди, где значение стало не таким, как ожидалось.</li>
+    <li>Проверь, где выполняется код: сервер или клиент? Изменения клиента не видны серверу.</li>
+    <li>Упрости: удали всё лишнее, пока баг не исчезнет. Последнее удалённое и есть причина.</li>
+  </ol>
+
+  <section class="quiz">
+    <h2>🧠 Проверь себя</h2>
+    <div class="q" data-correct="1">
+      <p>Как лучше сделать 200 одинаковых убивающих блоков?</p>
+      <ol><li>Скрипт в каждом блоке</li><li>Тег на блоки и один серверный скрипт или сервис через CollectionService</li><li>Один LocalScript</li><li>Модуль в каждом блоке</li></ol>
+      <p class="explain">Один код на все объекты: легко менять и дешевле по ресурсам.</p>
+    </div>
+    <div class="q" data-correct="3">
+      <p>Чем опасен RemoteEvent <code>SetProperty(object, property, value)</code>?</p>
+      <ol><li>Он медленный</li><li>Он не работает на телефонах</li><li>Ничем</li><li>Читер сможет менять любые свойства любых объектов</li></ol>
+      <p class="explain">Сервер становится послушным исполнителем любых команд клиента.</p>
+    </div>
+    <div class="q" data-correct="0">
+      <p>Скрипт не выдаёт ни ошибок, ни результатов. Что проверить первым?</p>
+      <ol><li>Запускается ли он вообще: правильные ли тип и место</li><li>Переписать код заново</li><li>Перезапустить Studio</li><li>Включить --!strict</li></ol>
+      <p class="explain">print первой строкой сразу покажет, работает ли скрипт.</p>
+    </div>
+    <div class="q" data-correct="2">
+      <p>Какая клавиша открывает консоль разработчика в игре?</p>
+      <ol><li>F5</li><li>F2</li><li>F9</li><li>Esc</li></ol>
+      <p class="explain">F9 — Developer Console.</p>
+    </div>
+  </section>
+
+  <section class="tasks">
+    <h2>📚 Задания</h2>
+    <div class="task">
+      <h3>Задание 1 <span class="level mid">среднее</span></h3>
+      <p>Переделай свои убивающие блоки и прыгалки из прошлых уроков: убери скрипты из деталей, повесь теги <code>Hazard</code> и <code>JumpPad</code>, а логику перенеси в один серверный скрипт через CollectionService. Сила прыжка должна браться из атрибута <code>Power</code> детали (по умолчанию 100).</p>
+      <details><summary>✅ Решение</summary>
+        <pre data-where="ServerScriptService > Script «WorldObjects»"><code>local CollectionService = game:GetService("CollectionService")
+
+local function onTagged(tag, setup)
+	for _, obj in CollectionService:GetTagged(tag) do
+		setup(obj)
+	end
+	CollectionService:GetInstanceAddedSignal(tag):Connect(setup)
+end
+
+onTagged("Hazard", function(part)
+	part.Touched:Connect(function(hit)
+		local humanoid = hit.Parent:FindFirstChildOfClass("Humanoid")
+		if humanoid then
+			humanoid.Health = 0
+		end
+	end)
+end)
+
+onTagged("JumpPad", function(part)
+	part.Touched:Connect(function(hit)
+		local root = hit.Parent:FindFirstChild("HumanoidRootPart")
+		if root then
+			local power = part:GetAttribute("Power") or 100
+			root.AssemblyLinearVelocity = Vector3.new(0, power, 0)
+		end
+	end)
+end)</code></pre>
+      </details>
+    </div>
+    <div class="task">
+      <h3>Задание 2 <span class="level hard">сложное</span></h3>
+      <p>Создай каркас проекта: <code>ServerMain</code> с загрузкой сервисов (Init/Start) и два сервиса: <code>PlayerService</code> (создаёт leaderstats) и <code>RewardService</code> (каждые 60 секунд даёт всем онлайн-игрокам +10 монет, обращаясь к PlayerService за функцией <code>addCoins</code>).</p>
+      <details><summary>✅ Решение</summary>
+        <pre data-where="ServerScriptService > Services > ModuleScript «PlayerService»"><code>local Players = game:GetService("Players")
+local PlayerService = {}
+
+function PlayerService:Init()
+	Players.PlayerAdded:Connect(function(player)
+		local stats = Instance.new("Folder")
+		stats.Name = "leaderstats"
+		local coins = Instance.new("IntValue")
+		coins.Name = "Coins"
+		coins.Parent = stats
+		stats.Parent = player
+	end)
+end
+
+function PlayerService:addCoins(player, amount)
+	local stats = player:FindFirstChild("leaderstats")
+	if stats then
+		stats.Coins.Value += amount
+	end
+end
+
+return PlayerService</code></pre>
+        <pre data-where="ServerScriptService > Services > ModuleScript «RewardService»"><code>local Players = game:GetService("Players")
+local RewardService = {}
+
+function RewardService:Init(services)
+	self.PlayerService = services.PlayerService
+end
+
+function RewardService:Start()
+	while true do
+		task.wait(60)
+		for _, player in Players:GetPlayers() do
+			self.PlayerService:addCoins(player, 10)
+		end
+	end
+end
+
+return RewardService</code></pre>
+        <p>ServerMain — из примера в уроке. Start каждого сервиса запускается через task.spawn, поэтому бесконечный цикл в RewardService не блокирует остальные.</p>
+      </details>
+    </div>
+    <div class="task">
+      <h3>Задание 3 <span class="level mid">среднее</span></h3>
+      <p>Найди проблемы в коде (их минимум 4):</p>
+      <pre data-where="ServerScriptService > Script (С ОШИБКАМИ)"><code>local data = {}
+game.Players.PlayerAdded:Connect(function(player)
+	data[player] = {kills = 0}
+	game:GetService("RunService").Heartbeat:Connect(function()
+		player.PlayerGui.HUD.Kills.Text = data[player].kills
+	end)
+end)
+game.ReplicatedStorage.AddKill.OnServerEvent:Connect(function(player, amount)
+	data[player].kills += amount
+end)</code></pre>
+      <details><summary>✅ Ответ</summary>
+        <ol>
+          <li><code>data[player]</code> не очищается при выходе: утечка памяти.</li>
+          <li>Heartbeat-соединение не отключается, когда игрок выходит, и продолжит работать и падать с ошибками.</li>
+          <li>Сервер обновляет UI каждый кадр. UI — работа клиента, и обновлять его нужно только при изменении.</li>
+          <li><code>AddKill</code> принимает число от клиента: читер пришлёт <code>amount = 99999</code>. Киллы должен засчитывать сервер при реальной смерти врага.</li>
+          <li>Нет проверки типа <code>amount</code> (NaN, строка).</li>
+        </ol>
+      </details>
+    </div>
+  </section>
+</article>
+<script src="../js/course.js"></script>
+<script src="../js/app.js"></script>
+</body>
+</html>

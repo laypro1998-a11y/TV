@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ModuleScript и require</title>
+<link rel="stylesheet" href="../css/style.css">
+</head>
+<body data-lesson="modules">
+<article class="lesson">
+  <h1>ModuleScript и require</h1>
+  <p class="lead">Когда скриптов становится много, код начинает повторяться: одни и те же цены, функции и настройки в пяти местах. Модули решают это: пишешь один раз, используешь везде.</p>
+
+  <div class="goals"><strong>🎯 После урока ты сможешь:</strong>
+    <ul>
+      <li>создавать ModuleScript и подключать его через <code>require</code>;</li>
+      <li>понимать, где модуль выполняется и когда;</li>
+      <li>выбирать место для модуля: ReplicatedStorage, ServerScriptService, ServerStorage;</li>
+      <li>делать модули-конфиги и модули-сервисы.</li>
+    </ul>
+  </div>
+
+  <h2>Первый модуль</h2>
+  <p>Создай в ReplicatedStorage <b>ModuleScript</b> и назови его <code>MathUtils</code>. В нём уже будет заготовка:</p>
+  <pre data-where="ReplicatedStorage > ModuleScript «MathUtils»"><code>local MathUtils = {}
+
+function MathUtils.round(n, decimals)
+	local mult = 10 ^ (decimals or 0)
+	return math.round(n * mult) / mult
+end
+
+function MathUtils.formatNumber(n)
+	-- 1500 -> 1.5K, 2300000 -> 2.3M
+	if n >= 1e6 then
+		return MathUtils.round(n / 1e6, 1) .. "M"
+	elseif n >= 1e3 then
+		return MathUtils.round(n / 1e3, 1) .. "K"
+	end
+	return tostring(n)
+end
+
+return MathUtils   -- модуль ОБЯЗАН вернуть ровно одно значение</code></pre>
+  <p>Подключаем из любого скрипта:</p>
+  <pre data-where="ServerScriptService > Script"><code>local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local MathUtils = require(ReplicatedStorage.MathUtils)
+
+print(MathUtils.formatNumber(1500))     --> 1.5K
+print(MathUtils.formatNumber(2345678))  --> 2.3M</code></pre>
+  <pre data-where="StarterGui > MainGui > LocalScript"><code>local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local MathUtils = require(ReplicatedStorage:WaitForChild("MathUtils"))
+
+-- тот же код работает и на клиенте
+print(MathUtils.formatNumber(98000))    --> 98K</code></pre>
+
+  <h2>Как работает require</h2>
+  <ul>
+    <li><code>require(модуль)</code> выполняет код модуля и возвращает то, что стоит после <code>return</code>.</li>
+    <li>Модуль выполняется <b>один раз</b> на каждой стороне. Повторный require вернёт <b>ту же самую таблицу</b>, код заново не запускается.</li>
+    <li>Модуль выполняется <b>там, откуда его вызвали</b>: Script → на сервере, LocalScript → на клиенте.</li>
+    <li>Сервер и каждый клиент получают <b>свои отдельные копии</b>. Изменения таблицы модуля на сервере клиент не увидит.</li>
+  </ul>
+  <pre data-where="ReplicatedStorage > ModuleScript «Counter»"><code>print("Модуль Counter загружен!")  -- выведется один раз
+local Counter = {value = 0}
+return Counter</code></pre>
+  <pre data-where="ServerScriptService > Script «A»"><code>local Counter = require(game.ReplicatedStorage.Counter)
+Counter.value += 10</code></pre>
+  <pre data-where="ServerScriptService > Script «B»"><code>task.wait(1)
+local Counter = require(game.ReplicatedStorage.Counter)
+print(Counter.value)  --> 10: таблица общая для всех серверных скриптов</code></pre>
+  <p>Так модули позволяют серверным скриптам <b>делиться данными</b> между собой.</p>
+
+  <h2>Куда класть модуль</h2>
+  <div class="table-wrap"><table>
+    <tr><th>Место</th><th>Кто может require</th><th>Что класть</th></tr>
+    <tr><td>⚙️ <b>ReplicatedStorage</b></td><td>Сервер и клиенты</td><td>Конфиги (цены, характеристики), утилиты, общие классы. <b>Не секретное</b></td></tr>
+    <tr><td>⚙️ <b>ServerScriptService</b></td><td>Только сервер</td><td>Серверная логика: работа с данными, выдача наград, античит</td></tr>
+    <tr><td>⚙️ <b>ServerStorage</b></td><td>Только сервер</td><td>Тоже подходит для серверных модулей. Многие держат серверные модули здесь, рядом с ассетами</td></tr>
+    <tr><td>⚙️ <b>StarterPlayerScripts</b></td><td>Только этот клиент</td><td>Клиентские модули: контроллеры камеры, UI</td></tr>
+  </table></div>
+  <div class="note danger"><p>Код модулей в ReplicatedStorage <b>скачивается каждому игроку</b>. Читер может его прочитать. Не храни там секреты: коды промокодов, ключи API, логику проверки покупок.</p></div>
+
+  <h2>Модуль-конфиг</h2>
+  <p>Самый простой и полезный вид модуля: все настройки игры в одном месте.</p>
+  <pre data-where="ReplicatedStorage > ModuleScript «GameConfig»"><code>local GameConfig = {
+	StartingCoins = 50,
+	RoundDuration = 120,
+	MaxPlayers = 12,
+
+	Weapons = {
+		Sword = {damage = 25, cooldown = 0.6, price = 100},
+		Axe   = {damage = 40, cooldown = 1.0, price = 250},
+		Spear = {damage = 30, cooldown = 0.8, price = 180},
+	},
+}
+
+return GameConfig</code></pre>
+  <pre data-where="ServerScriptService > Script"><code>local GameConfig = require(game:GetService("ReplicatedStorage").GameConfig)
+
+for name, stats in GameConfig.Weapons do
+	print(`{name}: урон {stats.damage}, цена {stats.price}`)
+end</code></pre>
+  <p>Магазин на клиенте покажет цену из этого же конфига, а сервер проверит покупку по нему же. Изменишь цену в одном месте, и она поменяется везде.</p>
+
+  <h2>Модуль-сервис</h2>
+  <p>Модуль может хранить <b>состояние</b> и функции для работы с ним. Например, единая система наград на сервере:</p>
+  <div class="explorer">
+    <div class="ex-title">Explorer</div>
+    <ul><li class="svc">ServerScriptService
+      <ul><li class="folder">Modules<ul><li class="module"><span class="hl">RewardService</span></li></ul></li>
+      <li class="script">Main</li><li class="script">ChestSystem</li></ul></li></ul>
+  </div>
+  <pre data-where="ServerScriptService > Modules > ModuleScript «RewardService»"><code>local RewardService = {}
+
+local totalGiven = {}  -- [player] = сколько всего выдано (приватно)
+
+function RewardService.give(player, amount, reason)
+	local stats = player:FindFirstChild("leaderstats")
+	if not stats then return false end
+
+	stats.Coins.Value += amount
+	totalGiven[player] = (totalGiven[player] or 0) + amount
+	print(`+{amount} монет игроку {player.Name} ({reason})`)
+	return true
+end
+
+function RewardService.getTotal(player)
+	return totalGiven[player] or 0
+end
+
+game:GetService("Players").PlayerRemoving:Connect(function(player)
+	totalGiven[player] = nil
+end)
+
+return RewardService</code></pre>
+  <pre data-where="ServerScriptService > Script «ChestSystem»"><code>local ServerScriptService = game:GetService("ServerScriptService")
+local RewardService = require(ServerScriptService.Modules.RewardService)
+
+-- где-то при открытии сундука:
+-- RewardService.give(player, 25, "сундук")</code></pre>
+  <p>Переменная <code>totalGiven</code> объявлена через <code>local</code> внутри модуля, но не добавлена в возвращаемую таблицу. Поэтому снаружи её не видно. Это <b>приватные данные</b> модуля, менять их можно только через его функции.</p>
+
+  <h2>Частые ошибки</h2>
+  <div class="table-wrap"><table>
+    <tr><th>Ошибка</th><th>Причина</th></tr>
+    <tr><td><code>Module code did not return exactly one value</code></td><td>Забыл <code>return</code> в конце модуля</td></tr>
+    <tr><td><code>Requested module experienced an error while loading</code></td><td>Ошибка внутри самого модуля. Смотри сообщение выше в Output</td></tr>
+    <tr><td>Клиент висит на <code>WaitForChild</code> модуля</td><td>Модуль лежит в ServerScriptService или ServerStorage, клиент их не видит</td></tr>
+    <tr><td>Модули зависли при загрузке</td><td><b>Циклический require</b>: A требует B, а B требует A. Перестрой зависимости</td></tr>
+    <tr><td>Изменил данные модуля на сервере, а клиент не видит</td><td>У клиента своя копия модуля. Передавай данные через Remote или Value-объекты</td></tr>
+  </table></div>
+
+  <section class="quiz">
+    <h2>🧠 Проверь себя</h2>
+    <div class="q" data-correct="1">
+      <p>Два серверных скрипта сделали require одного модуля. Сколько раз выполнится код модуля?</p>
+      <ol><li>Два раза</li><li>Один раз, оба получат одну и ту же таблицу</li><li>Ни разу</li><li>Каждый раз при обращении к функции</li></ol>
+      <p class="explain">require кэширует результат на каждой стороне (сервер и каждый клиент отдельно).</p>
+    </div>
+    <div class="q" data-correct="3">
+      <p>Где хранить модуль с логикой проверки промокодов?</p>
+      <ol><li>ReplicatedStorage</li><li>StarterGui</li><li>Workspace</li><li>ServerScriptService</li></ol>
+      <p class="explain">Секретную логику клиент не должен видеть.</p>
+    </div>
+    <div class="q" data-correct="0">
+      <p>LocalScript сделал require модуля из ReplicatedStorage. Где выполняется модуль?</p>
+      <ol><li>На клиенте этого игрока</li><li>На сервере</li><li>И там, и там</li><li>Нигде</li></ol>
+      <p class="explain">Модуль работает там, откуда его подключили.</p>
+    </div>
+    <div class="q" data-correct="2">
+      <p>Что должен делать ModuleScript в конце?</p>
+      <ol><li>Вызвать <code>require</code></li><li>Ничего</li><li>Вернуть одно значение через <code>return</code></li><li>Вызвать <code>print</code></li></ol>
+      <p class="explain">Обычно это таблица с функциями и данными.</p>
+    </div>
+  </section>
+
+  <section class="tasks">
+    <h2>📚 Задания</h2>
+    <div class="task">
+      <h3>Задание 1 <span class="level easy">лёгкое</span></h3>
+      <p>Сделай модуль <code>Colors</code> в ReplicatedStorage с цветами команд (<code>Red</code>, <code>Blue</code>, <code>Green</code> как Color3). Покрась им три детали из серверного скрипта.</p>
+      <details><summary>✅ Решение</summary>
+        <pre data-where="ReplicatedStorage > ModuleScript «Colors»"><code>local Colors = {
+	Red = Color3.fromRGB(230, 60, 60),
+	Blue = Color3.fromRGB(60, 120, 240),
+	Green = Color3.fromRGB(60, 200, 100),
+}
+return Colors</code></pre>
+        <pre data-where="ServerScriptService > Script"><code>local Colors = require(game:GetService("ReplicatedStorage").Colors)
+
+workspace.RedBase.Color = Colors.Red
+workspace.BlueBase.Color = Colors.Blue
+workspace.GreenBase.Color = Colors.Green</code></pre>
+      </details>
+    </div>
+    <div class="task">
+      <h3>Задание 2 <span class="level mid">среднее</span></h3>
+      <p>Сделай модуль <code>Timer</code> с функцией <code>Timer.format(seconds)</code>, которая возвращает строку <code>"MM:SS"</code>. Используй его и на сервере (вывод в Output), и на клиенте (TextLabel с обратным отсчётом).</p>
+      <details><summary>✅ Решение</summary>
+        <pre data-where="ReplicatedStorage > ModuleScript «Timer»"><code>local Timer = {}
+
+function Timer.format(seconds)
+	seconds = math.max(0, math.floor(seconds))
+	return string.format("%02d:%02d", seconds // 60, seconds % 60)
+end
+
+return Timer</code></pre>
+        <pre data-where="StarterGui > TimerGui > LocalScript"><code>local Timer = require(game:GetService("ReplicatedStorage"):WaitForChild("Timer"))
+local label = script.Parent:WaitForChild("TimeLabel")
+
+for t = 90, 0, -1 do
+	label.Text = Timer.format(t)
+	task.wait(1)
+end</code></pre>
+      </details>
+    </div>
+    <div class="task">
+      <h3>Задание 3 <span class="level hard">сложное</span></h3>
+      <p>Сделай серверный модуль <code>BanService</code> с функциями <code>ban(userId, reason)</code>, <code>isBanned(userId)</code> и <code>unban(userId)</code>. Подключи его в скрипте, который кикает забаненных при входе (<code>player:Kick(reason)</code>). Список банов храни приватно внутри модуля.</p>
+      <details><summary>✅ Решение</summary>
+        <pre data-where="ServerScriptService > Modules > ModuleScript «BanService»"><code>local BanService = {}
+local bans = {}   -- [userId] = reason
+
+function BanService.ban(userId, reason)
+	bans[userId] = reason or "Нарушение правил"
+	local player = game:GetService("Players"):GetPlayerByUserId(userId)
+	if player then
+		player:Kick(bans[userId])
+	end
+end
+
+function BanService.isBanned(userId)
+	return bans[userId] ~= nil, bans[userId]
+end
+
+function BanService.unban(userId)
+	bans[userId] = nil
+end
+
+return BanService</code></pre>
+        <pre data-where="ServerScriptService > Script «BanCheck»"><code>local Players = game:GetService("Players")
+local BanService = require(game:GetService("ServerScriptService").Modules.BanService)
+
+BanService.ban(123456789, "Читы")  -- пример
+
+Players.PlayerAdded:Connect(function(player)
+	local banned, reason = BanService.isBanned(player.UserId)
+	if banned then
+		player:Kick("Вы забанены: " .. reason)
+	end
+end)</code></pre>
+        <p>Такие баны живут только пока работает сервер. Чтобы они сохранялись навсегда, понадобится DataStore (урок 22).</p>
+      </details>
+    </div>
+  </section>
+</article>
+<script src="../js/course.js"></script>
+<script src="../js/app.js"></script>
+</body>
+</html>

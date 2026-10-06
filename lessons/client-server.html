@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Клиент и сервер: кто что видит</title>
+<link rel="stylesheet" href="../css/style.css">
+</head>
+<body data-lesson="client-server">
+<article class="lesson">
+  <h1>Клиент и сервер: кто что видит</h1>
+  <p class="lead">Ты уже знаешь, что Script работает на сервере, а LocalScript на клиенте. Теперь разберёмся глубже: как данные путешествуют между ними, кто чему «хозяин» и почему это главная защита от читеров.</p>
+
+  <div class="goals"><strong>🎯 После урока ты сможешь:</strong>
+    <ul>
+      <li>объяснить, что такое репликация;</li>
+      <li>предсказать, увидят ли другие игроки изменение;</li>
+      <li>понимать исключения: персонаж и сетевой владелец;</li>
+      <li>знать главное правило безопасности.</li>
+    </ul>
+  </div>
+
+  <h2>Репликация</h2>
+  <p><b>Репликация</b> — автоматическое копирование изменений по сети. Roblox делает её сам, но <b>только в одну сторону</b>:</p>
+  <div class="table-wrap"><table>
+    <tr><th>Кто меняет</th><th>Куда уходит изменение</th></tr>
+    <tr><td>📜 Сервер меняет объект в Workspace, ReplicatedStorage, Players...</td><td class="yes">✔ Всем клиентам автоматически</td></tr>
+    <tr><td>🖥️ Клиент меняет объект</td><td class="no">✘ Никуда. Остаётся только у этого клиента</td></tr>
+  </table></div>
+  <p>Эту защиту раньше называли <b>FilteringEnabled</b>. Сейчас она включена всегда, отключить нельзя.</p>
+
+  <h3>Эксперимент</h3>
+  <p>Запусти тест на 2 игрока (Test → Clients and Servers). Сделай в Workspace деталь <code>Wall</code> и два скрипта:</p>
+  <pre data-where="ServerScriptService > Script"><code>task.wait(5)
+workspace.Wall.BrickColor = BrickColor.new("Really blue")
+print("Сервер покрасил стену в синий")</code></pre>
+  <pre data-where="StarterPlayerScripts > LocalScript"><code>local Players = game:GetService("Players")
+local wall = workspace:WaitForChild("Wall")
+
+if Players.LocalPlayer.Name == "Player1" then
+	wall.BrickColor = BrickColor.new("Really red")
+	print("Клиент Player1 покрасил стену в красный")
+end</code></pre>
+  <p>Результат:</p>
+  <ul>
+    <li>Сразу после запуска: у Player1 стена красная, у Player2 и на сервере серая.</li>
+    <li>Через 5 секунд сервер красит в синий. Это изменение долетает до <b>всех</b>, и красный цвет у Player1 тоже перезаписывается.</li>
+  </ul>
+
+  <h2>Что видит клиент, а что нет</h2>
+  <div class="table-wrap"><table>
+    <tr><th>Место</th><th>Сервер</th><th>Клиент</th></tr>
+    <tr><td>Workspace</td><td class="yes">✔</td><td class="yes">✔ (копия)</td></tr>
+    <tr><td>ReplicatedStorage, ReplicatedFirst</td><td class="yes">✔</td><td class="yes">✔ (копия)</td></tr>
+    <tr><td>ServerScriptService, ServerStorage</td><td class="yes">✔</td><td class="no">✘ Пусто: клиент даже не знает, что там лежит</td></tr>
+    <tr><td>Players › Player › PlayerGui</td><td>Видит</td><td class="yes">Только свой</td></tr>
+    <tr><td>Players › Player › PlayerScripts</td><td class="no">✘</td><td class="yes">Только свои</td></tr>
+  </table></div>
+  <div class="note tip"><p>Поэтому секретный код (проверка покупок, выдача наград) и ценные шаблоны (оружие для админов) храни в <b>ServerScriptService</b> и <b>ServerStorage</b>. Всё, что лежит в ReplicatedStorage и Workspace, читер может скопировать.</p></div>
+
+  <h2>Исключения: что клиент всё-таки контролирует</h2>
+  <h3>1. Свой персонаж</h3>
+  <p>Чтобы движение не тормозило, Roblox доверяет клиенту <b>физику его персонажа</b>. Ты нажимаешь W, персонаж идёт сразу, а сервер получает позицию от клиента. Поэтому:</p>
+  <ul>
+    <li><code>WalkSpeed</code>, изменённый на клиенте, <b>действует</b>: персонаж реально побежит быстрее (и все это увидят);</li>
+    <li>анимации, запущенные LocalScript на своём персонаже, видны всем;</li>
+    <li>отсюда и большинство читов на скорость и полёты. Сервер должен проверять, не двигается ли игрок слишком быстро.</li>
+  </ul>
+
+  <h3>2. Сетевой владелец (Network Ownership)</h3>
+  <p>Незакреплённые детали рядом с игроком Roblox может отдать на «просчёт» этому клиенту, чтобы физика была плавной. Клиент-владелец может двигать такие детали. Для важных объектов сервер может забрать владение:</p>
+  <pre data-where="ServerScriptService > Script"><code>local ball = workspace:WaitForChild("Ball")
+ball:SetNetworkOwner(nil)  -- nil = физику считает только сервер</code></pre>
+
+  <h3>3. Звуки и некоторые эффекты</h3>
+  <p>Звук, запущенный на клиенте, слышит только этот игрок, но звуки внутри своего персонажа реплицируются. Помни это, если «звук слышен у всех», хотя ты играл его из LocalScript.</p>
+
+  <h2>Как же клиенту что-то изменить?</h2>
+  <p>Клиент не может менять общий мир, но может <b>попросить</b> сервер. Для этого есть специальные объекты: <b>RemoteEvent</b> и <b>RemoteFunction</b> (отдельный урок).</p>
+  <pre class="plain" data-where="Схема"><code>[Клиент] Игрок нажал «Купить меч»
+    │  remote:FireServer("Sword")
+    ▼
+[Сервер] Проверяет: хватает ли денег? Существует ли меч?
+    │  Списывает монеты, кладёт меч в Backpack
+    ▼
+[Все клиенты] Видят обновлённые монеты (репликация)</code></pre>
+
+  <h2>Главное правило безопасности</h2>
+  <div class="note danger"><p><b>Никогда не доверяй клиенту.</b> Всё, что приходит с клиента, читер может подделать: любые числа, любые названия, любую частоту запросов. Клиент может только <b>просить</b>, а <b>решает</b> всегда сервер.</p></div>
+  <div class="table-wrap"><table>
+    <tr><th>❌ Плохо</th><th>✅ Хорошо</th></tr>
+    <tr><td>Клиент: «Дай мне 100 монет»</td><td>Клиент: «Я собрал монету №5». Сервер проверяет, что монета существует и игрок рядом</td></tr>
+    <tr><td>Клиент: «Я нанёс 50 урона игроку X»</td><td>Клиент: «Я выстрелил в этом направлении». Сервер сам считает попадание и урон</td></tr>
+    <tr><td>Клиент: «Купи меч за 0 монет»</td><td>Клиент: «Хочу купить меч». Цену сервер берёт из своего конфига</td></tr>
+  </table></div>
+
+  <section class="quiz">
+    <h2>🧠 Проверь себя</h2>
+    <div class="q" data-correct="1">
+      <p>Сервер изменил Transparency детали в Workspace. Кто это увидит?</p>
+      <ol><li>Только сервер</li><li>Все игроки</li><li>Только тот, кто ближе всех</li><li>Никто, нужен RemoteEvent</li></ol>
+      <p class="explain">Изменения на сервере реплицируются всем клиентам автоматически.</p>
+    </div>
+    <div class="q" data-correct="3">
+      <p>Что клиент увидит в ServerStorage?</p>
+      <ol><li>Всё содержимое</li><li>Только модели</li><li>Только модули</li><li>Ничего</li></ol>
+      <p class="explain">Содержимое ServerStorage и ServerScriptService не отправляется клиентам.</p>
+    </div>
+    <div class="q" data-correct="0">
+      <p>LocalScript поставил <code>WalkSpeed = 100</code> своему персонажу. Что будет?</p>
+      <ol><li>Персонаж реально побежит быстрее</li><li>Ничего: клиент не может это менять</li><li>Ошибка в Output</li><li>Изменится только анимация</li></ol>
+      <p class="explain">Физикой своего персонажа управляет клиент. Поэтому скорость нужно проверять на сервере.</p>
+    </div>
+    <div class="q" data-correct="2">
+      <p>Как правильно сделать покупку?</p>
+      <ol><li>Клиент сам списывает монеты в leaderstats</li><li>Клиент отправляет цену, сервер списывает её</li><li>Клиент отправляет название товара, сервер берёт цену из своих данных и проверяет баланс</li><li>Сервер выдаёт товар любому, кто попросит</li></ol>
+      <p class="explain">Клиент только просит. Цену, баланс и наличие товара проверяет сервер.</p>
+    </div>
+  </section>
+
+  <section class="tasks">
+    <h2>📚 Задания</h2>
+    <div class="task">
+      <h3>Задание 1 <span class="level easy">лёгкое</span></h3>
+      <p>Повтори эксперимент с покраской стены на 2 игроках. Затем поменяй LocalScript, чтобы он <b>удалял</b> стену (<code>Destroy</code>). Пройдёт ли Player1 сквозь стену? Видит ли Player2, что стены нет у Player1?</p>
+      <details><summary>✅ Ответ</summary>
+        <p>У Player1 стены нет, и он пройдёт (его персонажа считает его клиент). Player2 и сервер стену видят. Player2 будет казаться, что Player1 прошёл сквозь стену. Так работают «noclip»-читы, поэтому важные барьеры проверяют на сервере.</p>
+      </details>
+    </div>
+    <div class="task">
+      <h3>Задание 2 <span class="level mid">среднее</span></h3>
+      <p>Для каждой ситуации ответь, сработает ли она и увидят ли её другие игроки:</p>
+      <ol type="a">
+        <li>LocalScript меняет <code>player.leaderstats.Coins.Value</code>.</li>
+        <li>LocalScript создаёт Part в Workspace.</li>
+        <li>Script создаёт Part в Workspace.</li>
+        <li>LocalScript проигрывает анимацию танца на своём персонаже.</li>
+        <li>LocalScript делает <code>require</code> модуля из ServerStorage.</li>
+      </ol>
+      <details><summary>✅ Ответ</summary>
+        <ol type="a">
+          <li>Изменится только у этого игрока, сервер и остальные не увидят.</li>
+          <li>Деталь будет только у этого игрока.</li>
+          <li>Увидят все.</li>
+          <li>Увидят все: анимации своего персонажа реплицируются.</li>
+          <li>Не сработает: клиент не видит ServerStorage, и WaitForChild будет ждать вечно.</li>
+        </ol>
+      </details>
+    </div>
+    <div class="task">
+      <h3>Задание 3 <span class="level mid">среднее</span></h3>
+      <p>Напиши серверный «античит скорости»: раз в секунду проверяй расстояние, на которое сместился HumanoidRootPart каждого игрока. Если больше 60 студов за секунду, выводи <code>warn</code> с ником (и, например, телепортируй обратно).</p>
+      <details><summary>✅ Решение</summary>
+        <pre data-where="ServerScriptService > Script «SpeedCheck»"><code>local Players = game:GetService("Players")
+local MAX_DISTANCE_PER_SECOND = 60
+local lastPositions = {}
+
+while true do
+	task.wait(1)
+	for _, player in Players:GetPlayers() do
+		local character = player.Character
+		local root = character and character:FindFirstChild("HumanoidRootPart")
+		if root then
+			local last = lastPositions[player]
+			if last and (root.Position - last).Magnitude > MAX_DISTANCE_PER_SECOND then
+				warn(player.Name, "двигается подозрительно быстро!")
+				character:PivotTo(CFrame.new(last))
+			end
+			lastPositions[player] = root.Position
+		end
+	end
+end</code></pre>
+        <p>Это учебный пример. В реальной игре учитывай падение, телепорты самой игры и прыжки с батутов, иначе пострадают честные игроки. Ещё нужно чистить <code>lastPositions</code> в PlayerRemoving.</p>
+      </details>
+    </div>
+  </section>
+</article>
+<script src="../js/course.js"></script>
+<script src="../js/app.js"></script>
+</body>
+</html>

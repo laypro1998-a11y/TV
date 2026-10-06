@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Функции</title>
+<link rel="stylesheet" href="../css/style.css">
+</head>
+<body data-lesson="functions">
+<article class="lesson">
+  <h1>Функции</h1>
+  <p class="lead">Функция — именованный кусок кода, который можно вызывать сколько угодно раз. На функциях держится всё: события, модули, системы игры.</p>
+
+  <div class="goals"><strong>🎯 После урока ты сможешь:</strong>
+    <ul>
+      <li>объявлять функции с параметрами и возвращаемым значением;</li>
+      <li>понимать область видимости переменных;</li>
+      <li>передавать функции как значения (это понадобится для событий);</li>
+      <li>знать разницу между <code>.</code> и <code>:</code> при вызове.</li>
+    </ul>
+  </div>
+
+  <h2>Объявление и вызов</h2>
+  <pre data-where="ServerScriptService > Script"><code>local function sayHello()
+	print("Привет!")
+end
+
+sayHello()  -- вызов: имя и скобки
+sayHello()</code></pre>
+  <p>Пока функцию не вызвали, код внутри неё не выполняется. Объявление — это как записать рецепт, а вызов — приготовить блюдо.</p>
+  <div class="note warn"><p>Функцию нужно <b>объявить выше</b> того места, где её вызывают. Скрипт читается сверху вниз.</p></div>
+
+  <h2>Параметры</h2>
+  <pre data-where="ServerScriptService > Script"><code>local function greet(name, level)
+	print(`Привет, {name}! Твой уровень: {level}`)
+end
+
+greet("Alex", 5)
+greet("Mia", 12)</code></pre>
+  <p><code>name</code> и <code>level</code> — <b>параметры</b>, переменные внутри функции. При вызове мы передаём <b>аргументы</b>: <code>"Alex"</code> и <code>5</code>. Если аргумент не передать, параметр будет <code>nil</code>.</p>
+
+  <h2>return — вернуть результат</h2>
+  <pre data-where="ServerScriptService > Script"><code>local function calculateDamage(base, isCritical)
+	if isCritical then
+		return base * 2
+	end
+	return base
+end
+
+local dmg = calculateDamage(25, true)
+print(dmg) --> 50</code></pre>
+  <p><code>return</code> сразу завершает функцию и отдаёт значение туда, где её вызвали.</p>
+
+  <h3>Несколько значений</h3>
+  <pre data-where="ServerScriptService > Script"><code>local function splitTime(totalSeconds)
+	return totalSeconds // 60, totalSeconds % 60
+end
+
+local minutes, seconds = splitTime(130)
+print(minutes, seconds) --> 2 10</code></pre>
+
+  <h2>Область видимости</h2>
+  <p>Переменная, созданная через <code>local</code>, видна только внутри своего <b>блока</b> (функции, if, цикла) и во вложенных блоках.</p>
+  <pre data-where="ServerScriptService > Script"><code>local score = 0          -- видна во всём скрипте
+
+local function addPoints(amount)
+	local bonus = 5      -- видна только внутри функции
+	score += amount + bonus
+end
+
+addPoints(10)
+print(score)  --> 15
+print(bonus)  --> nil: снаружи bonus не существует</code></pre>
+  <p>Функции «помнят» переменные, рядом с которыми были созданы. Поэтому <code>addPoints</code> меняет внешнюю <code>score</code>. Так в Roblox хранят состояние: счётчики, флаги, кулдауны.</p>
+
+  <h2>Функция — это значение</h2>
+  <p>Функцию можно положить в переменную или передать другой функции. Это главный механизм событий в Roblox:</p>
+  <pre data-where="ServerScriptService > Script"><code>local function onTouched(otherPart)
+	print("Кто-то коснулся:", otherPart.Name)
+end
+
+-- передаём функцию (без скобок!) — Roblox вызовет её сам при касании
+workspace.Baseplate.Touched:Connect(onTouched)
+
+-- или сразу безымянную (анонимную) функцию:
+workspace.Baseplate.Touched:Connect(function(otherPart)
+	print("Касание:", otherPart.Name)
+end)</code></pre>
+  <div class="note warn"><p><code>Connect(onTouched)</code> — передаём функцию. <code>Connect(onTouched())</code> — <b>ошибка</b>: функция вызовется сразу, а в Connect попадёт её результат (nil).</p></div>
+
+  <h2>Точка или двоеточие?</h2>
+  <p>В Roblox ты постоянно видишь оба варианта: <code>workspace.Baseplate</code> и <code>workspace:FindFirstChild("Baseplate")</code>.</p>
+  <ul>
+    <li><code>.</code> — обращение к <b>свойству</b> или дочернему объекту: <code>part.Transparency</code>, <code>workspace.Baseplate</code>;</li>
+    <li><code>:</code> — вызов <b>метода</b>, функции, которая работает с самим объектом: <code>part:Destroy()</code>, <code>part:Clone()</code>.</li>
+  </ul>
+  <p>Запись <code>obj:Method(x)</code> — сокращение для <code>obj.Method(obj, x)</code>: объект сам передаётся первым аргументом. Подробнее разберём в уроке про ООП. Пока правило простое: <b>методы объектов Roblox вызываются через двоеточие</b>.</p>
+
+  <h2>Пример: функция-помощник для игры</h2>
+  <pre data-where="ServerScriptService > Script «Spawner»"><code>local function createCoin(position)
+	local coin = Instance.new("Part")
+	coin.Name = "Coin"
+	coin.Shape = Enum.PartType.Cylinder
+	coin.Size = Vector3.new(0.4, 2, 2)
+	coin.BrickColor = BrickColor.new("Bright yellow")
+	coin.Material = Enum.Material.Neon
+	coin.Anchored = true
+	coin.Position = position
+	coin.Parent = workspace
+	return coin
+end
+
+-- Одна функция — много монет
+for i = 1, 8 do
+	createCoin(Vector3.new(i * 5, 3, 10))
+end</code></pre>
+  <div class="note tip"><p>Хорошая функция делает <b>одно дело</b> и называется глаголом: <code>createCoin</code>, <code>giveReward</code>, <code>resetPlayer</code>. Если функция стала длиннее экрана, раздели её на несколько.</p></div>
+
+  <section class="quiz">
+    <h2>🧠 Проверь себя</h2>
+    <div class="q" data-correct="1">
+      <p>Что выведет код?<br><code>local function f(a, b) return a * b end</code> <code>print(f(3))</code></p>
+      <ol><li>3</li><li>Ошибку: умножение на nil</li><li>0</li><li>nil</li></ol>
+      <p class="explain">b не передан, значит он nil. Умножение числа на nil — ошибка <code>attempt to perform arithmetic on nil</code>.</p>
+    </div>
+    <div class="q" data-correct="3">
+      <p>Как правильно подключить функцию <code>onHit</code> к событию?</p>
+      <ol><li><code>part.Touched:Connect(onHit())</code></li><li><code>part.Touched = onHit</code></li><li><code>part.Touched.Connect(onHit)</code></li><li><code>part.Touched:Connect(onHit)</code></li></ol>
+      <p class="explain">Передаём саму функцию, без скобок, и вызываем Connect через двоеточие.</p>
+    </div>
+    <div class="q" data-correct="0">
+      <p>Что делает <code>return</code>?</p>
+      <ol><li>Завершает функцию и возвращает значение</li><li>Повторяет функцию</li><li>Печатает значение</li><li>Возвращается к началу скрипта</li></ol>
+      <p class="explain">После return код функции дальше не выполняется.</p>
+    </div>
+    <div class="q" data-correct="2">
+      <p>Переменная создана через <code>local</code> внутри функции. Где она видна?</p>
+      <ol><li>Во всём скрипте</li><li>Во всех скриптах игры</li><li>Только внутри этой функции</li><li>Только после вызова функции</li></ol>
+      <p class="explain">local-переменная живёт в своём блоке.</p>
+    </div>
+  </section>
+
+  <section class="tasks">
+    <h2>📚 Задания</h2>
+    <div class="task">
+      <h3>Задание 1 <span class="level easy">лёгкое</span></h3>
+      <p>Напиши функцию <code>heal(health, amount, maxHealth)</code>, которая возвращает новое здоровье, но не больше максимума.</p>
+      <details><summary>✅ Решение</summary>
+        <pre data-where="ServerScriptService > Script"><code>local function heal(health, amount, maxHealth)
+	return math.min(health + amount, maxHealth)
+end
+
+print(heal(80, 50, 100)) --> 100
+print(heal(30, 20, 100)) --> 50</code></pre>
+      </details>
+    </div>
+    <div class="task">
+      <h3>Задание 2 <span class="level mid">среднее</span></h3>
+      <p>Напиши функцию <code>createWall(position, size, color)</code>, которая создаёт закреплённую деталь и возвращает её. С её помощью построй «загон»: 4 стены вокруг точки (0, 0, 0).</p>
+      <details><summary>✅ Решение</summary>
+        <pre data-where="ServerScriptService > Script"><code>local function createWall(position, size, color)
+	local wall = Instance.new("Part")
+	wall.Anchored = true
+	wall.Position = position
+	wall.Size = size
+	wall.BrickColor = BrickColor.new(color)
+	wall.Parent = workspace
+	return wall
+end
+
+createWall(Vector3.new(0, 5, 20), Vector3.new(40, 10, 1), "Brown")
+createWall(Vector3.new(0, 5, -20), Vector3.new(40, 10, 1), "Brown")
+createWall(Vector3.new(20, 5, 0), Vector3.new(1, 10, 40), "Brown")
+createWall(Vector3.new(-20, 5, 0), Vector3.new(1, 10, 40), "Brown")</code></pre>
+      </details>
+    </div>
+    <div class="task">
+      <h3>Задание 3 <span class="level hard">сложное</span></h3>
+      <p>Напиши функцию <code>makeCounter()</code>, которая возвращает <b>другую функцию</b>. Каждый вызов этой новой функции увеличивает свой счётчик и возвращает его. Два счётчика должны работать независимо.</p>
+      <details><summary>💡 Подсказка</summary><p>Создай <code>local count = 0</code> внутри makeCounter, а потом верни <code>function() ... end</code>, которая меняет count.</p></details>
+      <details><summary>✅ Решение</summary>
+        <pre data-where="ServerScriptService > Script"><code>local function makeCounter()
+	local count = 0
+	return function()
+		count += 1
+		return count
+	end
+end
+
+local redKills = makeCounter()
+local blueKills = makeCounter()
+
+print(redKills())  --> 1
+print(redKills())  --> 2
+print(blueKills()) --> 1  (у него свой count)</code></pre>
+        <p>Это называется <b>замыкание</b>: функция «захватывает» переменные вокруг себя.</p>
+      </details>
+    </div>
+  </section>
+</article>
+<script src="../js/course.js"></script>
+<script src="../js/app.js"></script>
+</body>
+</html>

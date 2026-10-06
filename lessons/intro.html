@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Roblox Studio и первый скрипт</title>
+<link rel="stylesheet" href="../css/style.css">
+</head>
+<body data-lesson="intro">
+<article class="lesson">
+  <h1>Roblox Studio и первый скрипт</h1>
+  <p class="lead">Разберёмся, что такое Luau, откроем Roblox Studio, найдём нужные окна и запустим первый скрипт, который поменяет что-то в игре.</p>
+
+  <div class="goals"><strong>🎯 После урока ты сможешь:</strong>
+    <ul>
+      <li>открыть нужные окна в Studio: Explorer, Properties, Output;</li>
+      <li>создать скрипт и запустить игру;</li>
+      <li>вывести сообщение в Output и изменить деталь из кода.</li>
+    </ul>
+  </div>
+
+  <h2>Что такое Luau</h2>
+  <p><b>Luau</b> — язык программирования Roblox. Он вырос из языка Lua: стал быстрее, получил типы, удобные строки и другие улучшения. Все игры на Roblox — от обби до огромных RPG — написаны на Luau.</p>
+  <p>Код в Roblox пишут внутри <b>скриптов</b>. Скрипт — это объект, такой же, как деталь или папка. Он лежит в дереве игры, и <b>от того, где он лежит, зависит, будет ли он вообще работать</b>. Поэтому в этом курсе у каждого примера подписано, куда его класть.</p>
+
+  <h2>Окна Roblox Studio</h2>
+  <p>Создай новый проект: <b>New → Baseplate</b>. Тебе понадобятся три окна. Если какого-то не видно, включи его на вкладке <b>View</b>.</p>
+  <div class="table-wrap"><table>
+    <tr><th>Окно</th><th>Зачем</th></tr>
+    <tr><td><b>Explorer</b></td><td>Дерево всех объектов игры. Здесь создают скрипты и решают, где они лежат.</td></tr>
+    <tr><td><b>Properties</b></td><td>Свойства выбранного объекта: цвет, размер, имя, прозрачность и т.д.</td></tr>
+    <tr><td><b>Output</b></td><td>Окно вывода. Сюда попадают сообщения из <code>print</code> и <b>ошибки</b>. Главный друг программиста.</td></tr>
+  </table></div>
+  <p>Так выглядит Explorer в пустом Baseplate. Это <b>сервисы</b>, большие «контейнеры» игры:</p>
+  <div class="explorer">
+    <div class="ex-title">Explorer</div>
+    <ul>
+      <li class="svc">Workspace <span class="cmt">— всё, что есть в 3D-мире</span>
+        <ul><li class="other">Camera</li><li class="part">Baseplate</li><li class="other">SpawnLocation</li></ul>
+      </li>
+      <li class="svc">Players <span class="cmt">— игроки на сервере</span></li>
+      <li class="svc">Lighting</li>
+      <li class="svc">ReplicatedFirst</li>
+      <li class="svc">ReplicatedStorage</li>
+      <li class="svc">ServerScriptService <span class="cmt">— серверные скрипты</span></li>
+      <li class="svc">ServerStorage</li>
+      <li class="svc">StarterGui</li>
+      <li class="svc">StarterPack</li>
+      <li class="svc">StarterPlayer</li>
+      <li class="svc">Teams</li>
+      <li class="svc">SoundService</li>
+    </ul>
+  </div>
+
+  <h2>Первый скрипт</h2>
+  <ol>
+    <li>В Explorer наведи мышку на <b>ServerScriptService</b> и нажми <b>⊕</b> (или правый клик → <b>Insert Object</b>).</li>
+    <li>Выбери <b>Script</b>. Откроется редактор с готовой строкой <code>print("Hello world!")</code>.</li>
+    <li>Нажми <kbd>F2</kbd> на скрипте в Explorer и переименуй его в <code>FirstScript</code>. Хорошие имена помогают не запутаться.</li>
+  </ol>
+  <div class="explorer">
+    <div class="ex-title">Explorer</div>
+    <ul><li class="svc">ServerScriptService<ul><li class="script"><span class="hl">FirstScript</span></li></ul></li></ul>
+  </div>
+  <p>Замени код на этот:</p>
+  <pre data-where="ServerScriptService > Script «FirstScript»"><code>print("Привет, Roblox!")
+print("2 + 2 =", 2 + 2)
+warn("Это предупреждение — оно жёлтое")</code></pre>
+  <p>Нажми <b>Play</b> (<kbd>F5</kbd>) и открой Output:</p>
+  <pre class="output"><code>Привет, Roblox!
+2 + 2 = 4
+Это предупреждение — оно жёлтое</code></pre>
+  <div class="note info"><p><b>print</b> выводит текст в Output. Через запятую можно передать несколько значений, между ними встанет пробел. <b>warn</b> делает то же самое, но жёлтым цветом. Удобно для важных сообщений.</p></div>
+
+  <h2>Код, который меняет игру</h2>
+  <p>Выводить текст скучно, давай изменим мир. В Workspace есть деталь <b>Baseplate</b>, это серый пол. Обратимся к ней из кода:</p>
+  <pre data-where="ServerScriptService > Script «FirstScript»"><code>-- Это комментарий: всё после двух минусов игнорируется
+local floor = workspace.Baseplate   -- находим пол
+
+floor.BrickColor = BrickColor.new("Bright green") -- красим в зелёный
+floor.Transparency = 0.3                           -- делаем чуть прозрачным
+
+print("Пол перекрашен!")</code></pre>
+  <p>Запусти игру: пол стал зелёным. Как это работает:</p>
+  <ul>
+    <li><code>workspace</code> — готовая переменная, указывает на сервис Workspace;</li>
+    <li>точка <code>.</code> означает «внутри»: <code>workspace.Baseplate</code> — объект Baseplate внутри Workspace;</li>
+    <li><code>floor.BrickColor = ...</code> меняет свойство объекта. Эти же свойства ты видишь в окне Properties.</li>
+  </ul>
+  <div class="note tip"><p>Названия свойств пишутся <b>точно как в окне Properties</b>, без пробелов: <code>BrickColor</code>, <code>Transparency</code>, <code>Anchored</code>. Регистр букв важен: <code>transparency</code> не сработает.</p></div>
+
+  <h2>Читаем ошибки</h2>
+  <p>Ошибаться нормально, главное — уметь читать ошибки. Допустим, ты опечатался в имени:</p>
+  <pre data-where="ServerScriptService > Script «FirstScript»"><code>local floor = workspace.Baseplat -- забыли букву e</code></pre>
+  <pre class="output"><code>Baseplat is not a valid member of Workspace "Workspace"
+Script 'ServerScriptService.FirstScript', Line 1</code></pre>
+  <p>Ошибка в Output красного цвета, и в ней написано всё: <b>что</b> не так (объекта Baseplat нет), <b>в каком скрипте</b> и <b>на какой строке</b>. Клик по ошибке откроет нужное место в коде.</p>
+
+  <h2>Play, Run и Stop</h2>
+  <div class="table-wrap"><table>
+    <tr><th>Кнопка</th><th>Что делает</th></tr>
+    <tr><td><b>Play</b> (<kbd>F5</kbd>)</td><td>Запускает игру с твоим персонажем. Работают и серверные, и клиентские скрипты.</td></tr>
+    <tr><td><b>Run</b> (<kbd>F8</kbd>)</td><td>Запускает только сервер, без персонажа. Подходит для проверки серверной логики.</td></tr>
+    <tr><td><b>Stop</b> (<kbd>Shift</kbd>+<kbd>F5</kbd>)</td><td>Останавливает игру. <b>Всё, что изменилось во время игры, откатывается!</b></td></tr>
+  </table></div>
+  <div class="note warn"><p>Частая беда новичков: поменял что-то в Explorer во время Play, нажал Stop, и изменения пропали. Скрипты и детали меняй, когда игра <b>остановлена</b>.</p></div>
+
+  <section class="quiz">
+    <h2>🧠 Проверь себя</h2>
+    <div class="q" data-correct="2">
+      <p>В каком окне видны сообщения из <code>print</code> и ошибки?</p>
+      <ol><li>Explorer</li><li>Properties</li><li>Output</li><li>Toolbox</li></ol>
+      <p class="explain">Output — окно вывода. Держи его открытым всегда.</p>
+    </div>
+    <div class="q" data-correct="1">
+      <p>Что делает строка <code>workspace.Baseplate.Transparency = 1</code>?</p>
+      <ol><li>Удаляет пол</li><li>Делает пол полностью прозрачным</li><li>Выводит прозрачность в Output</li><li>Ничего, это ошибка</li></ol>
+      <p class="explain">Transparency от 0 (непрозрачный) до 1 (невидимый). Пол остаётся на месте, по нему можно ходить, просто его не видно.</p>
+    </div>
+    <div class="q" data-correct="0">
+      <p>Ты переименовал деталь во время Play и нажал Stop. Что будет?</p>
+      <ol><li>Имя вернётся к старому</li><li>Новое имя сохранится</li><li>Деталь удалится</li><li>Studio выдаст ошибку</li></ol>
+      <p class="explain">Всё, что изменено во время игры, после Stop откатывается.</p>
+    </div>
+    <div class="q" data-correct="3">
+      <p>Как правильно написать комментарий в Luau?</p>
+      <ol><li><code>// комментарий</code></li><li><code># комментарий</code></li><li><code>/* комментарий */</code></li><li><code>-- комментарий</code></li></ol>
+      <p class="explain">В Luau комментарии начинаются с двух минусов. Многострочный: <code>--[[ ... ]]</code>.</p>
+    </div>
+  </section>
+
+  <section class="tasks">
+    <h2>📚 Задания</h2>
+    <div class="task">
+      <h3>Задание 1 <span class="level easy">лёгкое</span></h3>
+      <p>Создай Script в ServerScriptService, который выводит в Output три строки: твой ник, твой возраст и любимую игру на Roblox.</p>
+      <details><summary>✅ Решение</summary>
+        <pre data-where="ServerScriptService > Script"><code>print("Ник: Builderman")
+print("Возраст:", 14)
+print("Любимая игра: Doors")</code></pre>
+      </details>
+    </div>
+    <div class="task">
+      <h3>Задание 2 <span class="level easy">лёгкое</span></h3>
+      <p>Добавь в Workspace деталь (вкладка Home → <b>Part</b>), назови её <code>MyPart</code>. Напиши скрипт, который делает её красной, полупрозрачной и закреплённой (<code>Anchored</code>), чтобы она не падала.</p>
+      <details><summary>💡 Подсказка</summary>
+        <p>Свойство <code>Anchored</code> принимает <code>true</code> или <code>false</code>. Цвет: <code>BrickColor.new("Really red")</code>.</p>
+      </details>
+      <details><summary>✅ Решение</summary>
+        <pre data-where="ServerScriptService > Script"><code>local part = workspace.MyPart
+
+part.BrickColor = BrickColor.new("Really red")
+part.Transparency = 0.5
+part.Anchored = true</code></pre>
+      </details>
+    </div>
+    <div class="task">
+      <h3>Задание 3 <span class="level mid">среднее</span></h3>
+      <p>Сломай код специально: напиши <code>workspace.MyPart.Colour = ...</code> (с ошибкой в названии свойства). Запусти, прочитай ошибку в Output и объясни своими словами, что она значит. Потом исправь.</p>
+      <details><summary>✅ Ответ</summary>
+        <p>Будет ошибка вида <code>Colour is not a valid member of Part "Workspace.MyPart"</code>: у детали нет свойства Colour. Правильно <code>Color</code> (принимает <code>Color3</code>) или <code>BrickColor</code>.</p>
+      </details>
+    </div>
+  </section>
+</article>
+<script src="../js/course.js"></script>
+<script src="../js/app.js"></script>
+</body>
+</html>

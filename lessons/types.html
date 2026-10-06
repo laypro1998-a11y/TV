@@ -1,0 +1,285 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Типизация Luau</title>
+<link rel="stylesheet" href="../css/style.css">
+</head>
+<body data-lesson="types">
+<article class="lesson">
+  <h1>Типизация Luau</h1>
+  <p class="lead">Главное отличие Luau от обычного Lua — система типов. Она находит ошибки <b>до запуска игры</b>, улучшает автодополнение и делает большой код понятным. В профессиональных студиях на Roblox типы используют повсеместно.</p>
+
+  <div class="goals"><strong>🎯 После урока ты сможешь:</strong>
+    <ul>
+      <li>включать строгий режим <code>--!strict</code>;</li>
+      <li>указывать типы переменных, параметров и возвращаемых значений;</li>
+      <li>объявлять свои типы через <code>type</code>;</li>
+      <li>использовать опциональные типы, объединения и приведение типов.</li>
+    </ul>
+  </div>
+
+  <h2>Режимы проверки</h2>
+  <p>Первой строкой скрипта можно указать режим:</p>
+  <div class="table-wrap"><table>
+    <tr><th>Строка</th><th>Что делает</th></tr>
+    <tr><td><code>--!nocheck</code></td><td>Проверка типов выключена</td></tr>
+    <tr><td><code>--!nonstrict</code></td><td>По умолчанию. Проверяет только очевидные ошибки, неизвестное считает <code>any</code></td></tr>
+    <tr><td><code>--!strict</code></td><td>Строгий режим: всё должно сходиться по типам</td></tr>
+  </table></div>
+  <p>Ошибки типов Studio показывает <b>подчёркиванием в редакторе</b> и в окне <b>Script Analysis</b> (View → Script Analysis). На запуск игры они не влияют: это подсказки, а не ошибки выполнения.</p>
+
+  <h2>Аннотации типов</h2>
+  <pre data-where="ServerScriptService > Script"><code>--!strict
+
+local coins: number = 100
+local playerName: string = "Alex"
+local isReady: boolean = false
+
+local function addCoins(current: number, amount: number): number
+	return current + amount
+end
+
+addCoins(coins, "50")   -- ⚠ Studio подчеркнёт: string не является number</code></pre>
+  <p>Синтаксис: <code>имя: тип</code> для переменных и параметров и <code>): тип</code> после скобок для возвращаемого значения.</p>
+  <div class="note tip"><p>Не нужно подписывать тип везде. Luau сам выводит его: в <code>local coins = 100</code> он и так знает, что это number. Подписывай параметры функций и сложные структуры.</p></div>
+
+  <h2>Типы Roblox</h2>
+  <pre data-where="ServerScriptService > Script"><code>--!strict
+local Players = game:GetService("Players")
+
+local function healPlayer(player: Player, amount: number)
+	local character = player.Character
+	if not character then return end
+
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	if humanoid then
+		humanoid.Health += amount
+	end
+end
+
+local part: Part = Instance.new("Part")
+local position: Vector3 = Vector3.new(0, 10, 0)
+local color: Color3 = Color3.fromRGB(255, 0, 0)</code></pre>
+  <p>Все классы Roblox — это типы: <code>Player</code>, <code>Model</code>, <code>BasePart</code>, <code>Humanoid</code>, <code>RemoteEvent</code> и т.д.</p>
+
+  <h2>Опциональные типы: <code>?</code></h2>
+  <p><code>string?</code> означает «строка или nil». Строгий режим заставит проверить на nil перед использованием, и это спасает от <code>attempt to index nil</code>:</p>
+  <pre data-where="ServerScriptService > Script"><code>--!strict
+local function findTool(player: Player, name: string): Tool?
+	local backpack = player:FindFirstChild("Backpack")
+	if not backpack then return nil end
+	local tool = backpack:FindFirstChild(name)
+	if tool and tool:IsA("Tool") then
+		return tool
+	end
+	return nil
+end
+
+local tool = findTool(player, "Sword")  -- player — какой-то игрок
+-- tool.Name     ⚠ ошибка: tool может быть nil
+if tool then
+	print(tool.Name)  -- ✔ внутри проверки Luau знает, что tool — Tool
+end</code></pre>
+
+  <h2>Свои типы: type</h2>
+  <pre data-where="ReplicatedStorage > ModuleScript «Types»"><code>--!strict
+
+export type ItemData = {
+	name: string,
+	price: number,
+	damage: number?,              -- необязательное поле
+	rarity: "Common" | "Rare" | "Legendary",  -- только одно из трёх значений
+}
+
+export type Inventory = {ItemData}           -- массив ItemData
+export type PriceList = {[string]: number}   -- словарь: строка → число
+
+return {}  -- модуль обязан что-то вернуть, хоть пустую таблицу</code></pre>
+  <p><code>export</code> делает тип доступным в других скриптах:</p>
+  <pre data-where="ServerScriptService > Script"><code>--!strict
+local Types = require(game:GetService("ReplicatedStorage").Types)
+
+local sword: Types.ItemData = {
+	name = "Меч",
+	price = 100,
+	damage = 25,
+	rarity = "Rare",
+}
+
+local broken: Types.ItemData = {
+	name = "Щит",
+	price = "дорого",   -- ⚠ string вместо number
+	rarity = "Epic",    -- ⚠ такого варианта нет
+}</code></pre>
+
+  <h2>Объединения и приведение</h2>
+  <pre data-where="ServerScriptService > Script"><code>--!strict
+
+-- Объединение: значение одного из типов
+local function describe(value: number | string): string
+	if typeof(value) == "number" then
+		return `Число {value}`      -- здесь Luau знает: value — number
+	end
+	return `Строка "{value}"`       -- а здесь — string
+end
+
+-- Приведение типа через ::
+-- Когда ты знаешь больше, чем анализатор
+local part = workspace:WaitForChild("Door") :: BasePart
+part.Transparency = 0.5</code></pre>
+  <div class="note warn"><p><code>::</code> не проверяет и не преобразует ничего во время игры, а только говорит анализатору «поверь мне». Если там окажется не BasePart, ошибка всё равно будет, просто позже. Используй, когда уверен.</p></div>
+
+  <h2>Функции как типы и обобщения</h2>
+  <pre data-where="ReplicatedStorage > ModuleScript «TableUtils»"><code>--!strict
+local TableUtils = {}
+
+-- Тип функции: принимает number, возвращает boolean
+type Predicate = (number) -> boolean
+
+function TableUtils.countIf(list: {number}, check: Predicate): number
+	local count = 0
+	for _, v in list do
+		if check(v) then count += 1 end
+	end
+	return count
+end
+
+-- Обобщённая (generic) функция: T — «любой тип»
+function TableUtils.last&lt;T&gt;(list: {T}): T?
+	return list[#list]
+end
+
+return TableUtils</code></pre>
+  <pre data-where="ServerScriptService > Script"><code>--!strict
+local TableUtils = require(game:GetService("ReplicatedStorage").TableUtils)
+
+print(TableUtils.countIf({5, 12, 8, 20}, function(n) return n > 10 end)) --> 2
+local name = TableUtils.last({"a", "b", "c"})  -- Luau знает: name — string?</code></pre>
+
+  <h2>Типизированный класс</h2>
+  <p>Продолжение урока про ООП, классы с типами:</p>
+  <pre data-where="ReplicatedStorage > ModuleScript «Weapon»"><code>--!strict
+local Weapon = {}
+Weapon.__index = Weapon
+
+type WeaponData = {
+	name: string,
+	damage: number,
+	cooldown: number,
+	lastUsed: number,
+}
+export type Weapon = typeof(setmetatable({} :: WeaponData, Weapon))
+
+function Weapon.new(name: string, damage: number, cooldown: number): Weapon
+	local self = setmetatable({} :: WeaponData, Weapon)
+	self.name = name
+	self.damage = damage
+	self.cooldown = cooldown
+	self.lastUsed = 0
+	return self
+end
+
+function Weapon.canAttack(self: Weapon): boolean
+	return os.clock() - self.lastUsed >= self.cooldown
+end
+
+return Weapon</code></pre>
+  <p>Теперь при вводе <code>sword.</code> Studio подскажет все поля и методы, а опечатки подчеркнёт.</p>
+
+  <section class="quiz">
+    <h2>🧠 Проверь себя</h2>
+    <div class="q" data-correct="1">
+      <p>Что означает тип <code>Player?</code></p>
+      <ol><li>Любой игрок</li><li>Player или nil</li><li>Массив игроков</li><li>Неизвестный тип</li></ol>
+      <p class="explain">Знак вопроса делает тип опциональным.</p>
+    </div>
+    <div class="q" data-correct="2">
+      <p>Что будет, если в <code>--!strict</code> передать строку в параметр типа number и запустить игру?</p>
+      <ol><li>Игра не запустится</li><li>Studio автоматически исправит код</li><li>Studio покажет предупреждение в редакторе, но игра запустится</li><li>Строка превратится в число</li></ol>
+      <p class="explain">Типы — подсказки анализатора. Код всё равно выполнится, и, возможно, упадёт уже при работе.</p>
+    </div>
+    <div class="q" data-correct="0">
+      <p>Как описать словарь «название предмета → цена»?</p>
+      <ol><li><code>{[string]: number}</code></li><li><code>{string, number}</code></li><li><code>{number}</code></li><li><code>string -> number</code></li></ol>
+      <p class="explain"><code>{number}</code> — массив чисел, <code>{[K]: V}</code> — словарь.</p>
+    </div>
+    <div class="q" data-correct="3">
+      <p>Что делает <code>x :: BasePart</code>?</p>
+      <ol><li>Превращает x в деталь</li><li>Проверяет, что x — деталь, и кидает ошибку</li><li>Создаёт новую деталь</li><li>Говорит анализатору считать x деталью, без проверок во время игры</li></ol>
+      <p class="explain">Это приведение типа только для анализатора.</p>
+    </div>
+  </section>
+
+  <section class="tasks">
+    <h2>📚 Задания</h2>
+    <div class="task">
+      <h3>Задание 1 <span class="level easy">лёгкое</span></h3>
+      <p>Включи <code>--!strict</code> в одном из своих старых скриптов. Открой Script Analysis и исправь все предупреждения: добавь типы параметрам и проверки на nil.</p>
+      <details><summary>✅ Что обычно всплывает</summary>
+        <ul>
+          <li>Параметры без типов в strict-режиме выводятся по использованию. Подпиши их явно.</li>
+          <li><code>FindFirstChild</code> возвращает <code>Instance?</code>: нужна проверка <code>if obj then</code>.</li>
+          <li>Обращение к свойствам детали через <code>FindFirstChild</code> даёт Instance, у которого нет Transparency. Проверь через <code>IsA("BasePart")</code>, и Luau сузит тип.</li>
+        </ul>
+      </details>
+    </div>
+    <div class="task">
+      <h3>Задание 2 <span class="level mid">среднее</span></h3>
+      <p>Опиши тип <code>QuestData</code> (название, описание, награда-число, цель: тип <code>"Kill" | "Collect" | "Visit"</code>, необязательное поле <code>timeLimit</code>). Сделай массив из 3 квестов и функцию <code>getTotalReward(quests: {QuestData}): number</code>.</p>
+      <details><summary>✅ Решение</summary>
+        <pre data-where="ServerScriptService > Script"><code>--!strict
+type QuestData = {
+	title: string,
+	description: string,
+	reward: number,
+	goal: "Kill" | "Collect" | "Visit",
+	timeLimit: number?,
+}
+
+local quests: {QuestData} = {
+	{title = "Охотник", description = "Победи 5 слизней", reward = 50, goal = "Kill"},
+	{title = "Сборщик", description = "Собери 10 грибов", reward = 30, goal = "Collect", timeLimit = 120},
+	{title = "Путник", description = "Дойди до маяка", reward = 20, goal = "Visit"},
+}
+
+local function getTotalReward(list: {QuestData}): number
+	local total = 0
+	for _, quest in list do
+		total += quest.reward
+	end
+	return total
+end
+
+print(getTotalReward(quests)) --> 100</code></pre>
+      </details>
+    </div>
+    <div class="task">
+      <h3>Задание 3 <span class="level hard">сложное</span></h3>
+      <p>Напиши обобщённую функцию <code>filter&lt;T&gt;(list: {T}, check: (T) -&gt; boolean): {T}</code>, которая возвращает новый массив подходящих элементов. Используй её для поиска всех BasePart в <code>workspace:GetDescendants()</code>, которые выше Y = 50.</p>
+      <details><summary>✅ Решение</summary>
+        <pre data-where="ServerScriptService > Script"><code>--!strict
+local function filter&lt;T&gt;(list: {T}, check: (T) -> boolean): {T}
+	local result = {}
+	for _, item in list do
+		if check(item) then
+			table.insert(result, item)
+		end
+	end
+	return result
+end
+
+local high = filter(workspace:GetDescendants(), function(obj: Instance): boolean
+	return obj:IsA("BasePart") and obj.Position.Y > 50
+end)
+
+print("Высоких деталей:", #high)</code></pre>
+      </details>
+    </div>
+  </section>
+</article>
+<script src="../js/course.js"></script>
+<script src="../js/app.js"></script>
+</body>
+</html>

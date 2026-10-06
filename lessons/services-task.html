@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Сервисы, task и RunService</title>
+<link rel="stylesheet" href="../css/style.css">
+</head>
+<body data-lesson="services-task">
+<article class="lesson">
+  <h1>Сервисы, task и RunService</h1>
+  <p class="lead">Сервисы — встроенные «модули» Roblox: игроки, звуки, физика, сохранения. А библиотека <code>task</code> управляет временем: паузами, задержками и параллельным запуском кода.</p>
+
+  <div class="goals"><strong>🎯 После урока ты сможешь:</strong>
+    <ul>
+      <li>правильно получать сервисы через <code>GetService</code>;</li>
+      <li>знать главные сервисы и для чего они нужны;</li>
+      <li>использовать <code>task.wait</code>, <code>task.spawn</code>, <code>task.delay</code>;</li>
+      <li>выполнять код каждый кадр через <code>RunService</code>.</li>
+    </ul>
+  </div>
+
+  <h2>GetService</h2>
+  <pre data-where="Любой скрипт"><code>local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")</code></pre>
+  <p>Можно писать и <code>game.Players</code>, но <code>GetService</code> надёжнее: он работает, даже если сервис переименовали, и создаёт сервис, если тот ещё не загружен. <b>Получай сервисы в самом начале скрипта</b>. Так видно, от чего скрипт зависит.</p>
+  <div class="note tip"><p>Принято называть переменную так же, как сервис: <code>local Players = game:GetService("Players")</code>.</p></div>
+
+  <h2>Главные сервисы</h2>
+  <div class="table-wrap"><table>
+    <tr><th>Сервис</th><th>Для чего</th></tr>
+    <tr><td><b>Players</b></td><td>Список игроков, события входа и выхода, LocalPlayer на клиенте</td></tr>
+    <tr><td><b>ReplicatedStorage</b></td><td>Хранилище, общее для сервера и клиентов</td></tr>
+    <tr><td><b>ServerStorage</b></td><td>Хранилище только для сервера</td></tr>
+    <tr><td><b>RunService</b></td><td>События каждого кадра, проверка «я на сервере или клиенте?»</td></tr>
+    <tr><td><b>TweenService</b></td><td>Плавная анимация свойств</td></tr>
+    <tr><td><b>UserInputService</b></td><td>Клавиатура, мышь, тач (только клиент)</td></tr>
+    <tr><td><b>DataStoreService</b></td><td>Сохранение данных между сессиями (только сервер)</td></tr>
+    <tr><td><b>Debris</b></td><td>Удалить объект через N секунд</td></tr>
+    <tr><td><b>SoundService</b></td><td>Звуки</td></tr>
+    <tr><td><b>Lighting</b></td><td>Освещение, время суток, туман</td></tr>
+    <tr><td><b>CollectionService</b></td><td>Теги объектов (разберём в уроке про архитектуру)</td></tr>
+    <tr><td><b>Teams</b></td><td>Команды игроков</td></tr>
+  </table></div>
+
+  <h3>Пример: смена дня и ночи</h3>
+  <pre data-where="ServerScriptService > Script «DayNight»"><code>local Lighting = game:GetService("Lighting")
+
+local MINUTES_PER_SECOND = 2   -- скорость времени
+
+while true do
+	Lighting.ClockTime = (Lighting.ClockTime + MINUTES_PER_SECOND / 60) % 24
+	task.wait(1)
+end</code></pre>
+
+  <h2>Библиотека task</h2>
+  <div class="table-wrap"><table>
+    <tr><th>Функция</th><th>Что делает</th></tr>
+    <tr><td><code>task.wait(сек)</code></td><td>Пауза. Возвращает, сколько на самом деле прошло. Без аргумента ждёт один кадр</td></tr>
+    <tr><td><code>task.spawn(функция, ...)</code></td><td>Запускает функцию «параллельно», не дожидаясь её окончания</td></tr>
+    <tr><td><code>task.delay(сек, функция, ...)</code></td><td>Запускает функцию через N секунд, а текущий код продолжает работу</td></tr>
+    <tr><td><code>task.defer(функция, ...)</code></td><td>Запускает функцию чуть позже, в конце текущего кадра</td></tr>
+    <tr><td><code>task.cancel(поток)</code></td><td>Отменяет запланированную задачу</td></tr>
+  </table></div>
+
+  <h3>Проблема: два бесконечных цикла</h3>
+  <pre data-where="ServerScriptService > Script"><code>while true do
+	print("Цикл 1")
+	task.wait(1)
+end
+
+-- Сюда скрипт НИКОГДА не дойдёт: первый цикл бесконечный
+while true do
+	print("Цикл 2")
+	task.wait(1)
+end</code></pre>
+  <p>Решение — <code>task.spawn</code>:</p>
+  <pre data-where="ServerScriptService > Script"><code>task.spawn(function()
+	while true do
+		print("Цикл 1")
+		task.wait(1)
+	end
+end)
+
+task.spawn(function()
+	while true do
+		print("Цикл 2")
+		task.wait(2)
+	end
+end)
+
+print("Этот текст выведется сразу — spawn не блокирует скрипт")</code></pre>
+
+  <h3>task.delay — «сделай потом»</h3>
+  <pre data-where="ServerScriptService > Script"><code>local part = Instance.new("Part")
+part.Position = Vector3.new(0, 20, 0)
+part.Parent = workspace
+
+task.delay(5, function()
+	part:Destroy()      -- удалится через 5 секунд
+end)
+
+print("А код продолжает работать сразу")
+
+-- Для удаления есть и готовый сервис:
+-- game:GetService("Debris"):AddItem(part, 5)</code></pre>
+
+  <h2>RunService — каждый кадр</h2>
+  <p>Для плавного движения <code>while true do ... task.wait() end</code> работает, но правильнее подписаться на событие кадра:</p>
+  <div class="table-wrap"><table>
+    <tr><th>Событие</th><th>Где</th><th>Когда</th></tr>
+    <tr><td><code>Heartbeat</code></td><td>Сервер и клиент</td><td>Каждый кадр после физики. Самое универсальное</td></tr>
+    <tr><td><code>Stepped</code> / <code>PreSimulation</code></td><td>Сервер и клиент</td><td>Каждый кадр перед физикой</td></tr>
+    <tr><td><code>RenderStepped</code> / <code>PreRender</code></td><td>Только клиент</td><td>Перед отрисовкой кадра. Для камеры и визуала</td></tr>
+  </table></div>
+  <pre data-where="ServerScriptService > Script «Spinner»"><code>local RunService = game:GetService("RunService")
+local part = workspace:WaitForChild("Spinner")
+part.Anchored = true
+
+local DEGREES_PER_SECOND = 90
+
+RunService.Heartbeat:Connect(function(deltaTime)
+	-- deltaTime — сколько секунд прошло с прошлого кадра (около 1/60)
+	part.CFrame *= CFrame.Angles(0, math.rad(DEGREES_PER_SECOND * deltaTime), 0)
+end)</code></pre>
+  <div class="note info"><p>Зачем умножать на <b>deltaTime</b>? Кадры идут неравномерно: на слабом устройстве их меньше. Если поворачивать «на 2° за кадр», скорость будет зависеть от FPS. «90° в секунду × время кадра» даёт одинаковую скорость везде.</p></div>
+
+  <h3>Сервер или клиент?</h3>
+  <pre data-where="ReplicatedStorage > ModuleScript"><code>local RunService = game:GetService("RunService")
+
+if RunService:IsServer() then
+	print("Меня запустили на сервере")
+else
+	print("Меня запустили на клиенте")
+end
+
+print(RunService:IsStudio()) -- true, если игра запущена в Studio</code></pre>
+  <p>Это особенно полезно в модулях, которые подключают и сервер, и клиент.</p>
+
+  <section class="quiz">
+    <h2>🧠 Проверь себя</h2>
+    <div class="q" data-correct="1">
+      <p>Как запустить два бесконечных цикла в одном скрипте?</p>
+      <ol><li>Никак, нужно два скрипта</li><li>Обернуть хотя бы первый в <code>task.spawn</code></li><li>Поставить <code>task.wait(0)</code> между ними</li><li>Использовать <code>repeat</code></li></ol>
+      <p class="explain">task.spawn запускает функцию и сразу возвращает управление дальше.</p>
+    </div>
+    <div class="q" data-correct="3">
+      <p>Какое событие RunService работает <b>только на клиенте</b>?</p>
+      <ol><li>Heartbeat</li><li>Stepped</li><li>PreSimulation</li><li>RenderStepped</li></ol>
+      <p class="explain">Отрисовки на сервере нет, поэтому RenderStepped/PreRender есть только на клиенте.</p>
+    </div>
+    <div class="q" data-correct="0">
+      <p>Что произойдёт после <code>task.delay(3, f)</code>?</p>
+      <ol><li>Скрипт продолжит работу, а f вызовется через 3 секунды</li><li>Скрипт остановится на 3 секунды, потом вызовет f</li><li>f вызовется 3 раза</li><li>f вызовется сразу</li></ol>
+      <p class="explain">delay не блокирует текущий код.</p>
+    </div>
+    <div class="q" data-correct="2">
+      <p>Зачем умножать скорость на deltaTime?</p>
+      <ol><li>Чтобы код работал на сервере</li><li>Чтобы снизить нагрузку</li><li>Чтобы скорость не зависела от FPS</li><li>Так требует Heartbeat</li></ol>
+      <p class="explain">Движение «в секунду», а не «в кадр», одинаково на любом устройстве.</p>
+    </div>
+  </section>
+
+  <section class="tasks">
+    <h2>📚 Задания</h2>
+    <div class="task">
+      <h3>Задание 1 <span class="level easy">лёгкое</span></h3>
+      <p>Каждые 2 секунды с неба (Y = 50) в случайной точке падает деталь, а через 6 секунд она удаляется. Используй <code>Debris</code>.</p>
+      <details><summary>✅ Решение</summary>
+        <pre data-where="ServerScriptService > Script «Rain»"><code>local Debris = game:GetService("Debris")
+
+while true do
+	local drop = Instance.new("Part")
+	drop.Size = Vector3.new(2, 2, 2)
+	drop.Position = Vector3.new(math.random(-50, 50), 50, math.random(-50, 50))
+	drop.BrickColor = BrickColor.random()
+	drop.Parent = workspace
+	Debris:AddItem(drop, 6)
+	task.wait(2)
+end</code></pre>
+      </details>
+    </div>
+    <div class="task">
+      <h3>Задание 2 <span class="level mid">среднее</span></h3>
+      <p>В одном скрипте запусти одновременно: смену дня и ночи (цикл 1) и объявление в Output раз в 10 секунд «Прошло N секунд» (цикл 2).</p>
+      <details><summary>✅ Решение</summary>
+        <pre data-where="ServerScriptService > Script"><code>local Lighting = game:GetService("Lighting")
+
+task.spawn(function()
+	while true do
+		Lighting.ClockTime = (Lighting.ClockTime + 0.1) % 24
+		task.wait(0.1)
+	end
+end)
+
+task.spawn(function()
+	local seconds = 0
+	while true do
+		task.wait(10)
+		seconds += 10
+		print(`Прошло {seconds} секунд`)
+	end
+end)</code></pre>
+      </details>
+    </div>
+    <div class="task">
+      <h3>Задание 3 <span class="level hard">сложное</span></h3>
+      <p>Сделай «летающую монету»: деталь плавно качается вверх-вниз (синусоида) и вращается, используя <code>Heartbeat</code> и deltaTime. Сделай так, чтобы через 15 секунд движение остановилось (отключи соединение).</p>
+      <details><summary>✅ Решение</summary>
+        <pre data-where="ServerScriptService > Script"><code>local RunService = game:GetService("RunService")
+local coin = workspace:WaitForChild("Coin")
+coin.Anchored = true
+
+local basePos = coin.Position
+local angle = 0
+local elapsed = 0
+
+local connection = RunService.Heartbeat:Connect(function(dt)
+	elapsed += dt
+	angle += math.rad(120) * dt
+	local y = math.sin(elapsed * 3) * 1.5
+	coin.CFrame = CFrame.new(basePos + Vector3.new(0, y, 0)) * CFrame.Angles(0, angle, 0)
+end)
+
+task.delay(15, function()
+	connection:Disconnect()
+	print("Монета остановилась")
+end)</code></pre>
+      </details>
+    </div>
+  </section>
+</article>
+<script src="../js/course.js"></script>
+<script src="../js/app.js"></script>
+</body>
+</html>

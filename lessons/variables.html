@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Переменные и типы данных</title>
+<link rel="stylesheet" href="../css/style.css">
+</head>
+<body data-lesson="variables">
+<article class="lesson">
+  <h1>Переменные и типы данных</h1>
+  <p class="lead">Переменная — «коробка с подписью», в которой хранится значение. Без переменных не обходится ни один скрипт.</p>
+
+  <div class="goals"><strong>🎯 После урока ты сможешь:</strong>
+    <ul>
+      <li>создавать и изменять переменные через <code>local</code>;</li>
+      <li>различать типы: число, строка, логическое значение, nil;</li>
+      <li>узнавать тип значения через <code>typeof</code>.</li>
+    </ul>
+  </div>
+
+  <h2>Создаём переменную</h2>
+  <pre data-where="ServerScriptService > Script"><code>local coins = 100
+local playerName = "Builderman"
+local isAlive = true
+
+print(playerName, "имеет", coins, "монет")</code></pre>
+  <pre class="output"><code>Builderman имеет 100 монет</code></pre>
+  <p>Строка <code>local coins = 100</code> читается так: «создай локальную переменную <b>coins</b> и положи в неё <b>100</b>». Знак <code>=</code> здесь не «равно» из математики, а <b>присвоить</b>.</p>
+
+  <h3>Меняем значение</h3>
+  <pre data-where="ServerScriptService > Script"><code>local coins = 100
+coins = coins + 50   -- берём старое значение, прибавляем 50, кладём обратно
+print(coins)         --> 150
+
+coins += 25          -- то же самое, только короче (есть в Luau, нет в обычном Lua)
+print(coins)         --> 175</code></pre>
+  <p>Слово <code>local</code> пишется только при <b>создании</b> переменной. Дальше обращаемся к ней по имени.</p>
+
+  <h2>Почему всегда local</h2>
+  <p>Можно написать <code>coins = 100</code> без <code>local</code>, тогда получится <b>глобальная</b> переменная. Так делать не стоит:</p>
+  <ul>
+    <li>локальные переменные работают быстрее;</li>
+    <li>глобальные легко случайно перезаписать в другом месте скрипта;</li>
+    <li>Studio подчёркивает глобальные переменные как подозрительные.</li>
+  </ul>
+  <div class="note tip"><p>Правило курса: <b>каждая переменная создаётся через <code>local</code></b>. Исключений нет.</p></div>
+
+  <h2>Правила имён</h2>
+  <ul>
+    <li>Можно латинские буквы, цифры и <code>_</code>. Начинать с цифры нельзя: <code>2player</code> ✘, <code>player2</code> ✔.</li>
+    <li>Регистр важен: <code>coins</code> и <code>Coins</code> — разные переменные.</li>
+    <li>Нельзя использовать ключевые слова: <code>local</code>, <code>end</code>, <code>if</code>, <code>function</code> и т.д.</li>
+    <li>Принято писать <b>camelCase</b>: <code>maxHealth</code>, <code>playerCount</code>, <code>isDoorOpen</code>. Константы (неизменяемые настройки) часто пишут <code>MAX_PLAYERS</code>.</li>
+  </ul>
+  <p>Называй переменные понятно. <code>local a = 16</code> ничего не говорит, а <code>local walkSpeed = 16</code> говорит всё.</p>
+
+  <h2>Основные типы данных</h2>
+  <div class="table-wrap"><table>
+    <tr><th>Тип</th><th>Пример</th><th>Что это</th></tr>
+    <tr><td><b>number</b></td><td><code>10</code>, <code>-3</code>, <code>0.5</code>, <code>1e6</code></td><td>Любое число: целое или дробное. Дробная часть пишется через <b>точку</b>.</td></tr>
+    <tr><td><b>string</b></td><td><code>"Привет"</code>, <code>'Привет'</code></td><td>Текст. Кавычки двойные или одинарные, лишь бы одинаковые с обеих сторон.</td></tr>
+    <tr><td><b>boolean</b></td><td><code>true</code>, <code>false</code></td><td>Логическое значение: да или нет. Открыта ли дверь? Жив ли игрок?</td></tr>
+    <tr><td><b>nil</b></td><td><code>nil</code></td><td>«Ничего», пустота. Значение отсутствует.</td></tr>
+    <tr><td><b>table</b></td><td><code>{1, 2, 3}</code></td><td>Таблица, набор значений. Отдельный урок.</td></tr>
+    <tr><td><b>function</b></td><td><code>print</code></td><td>Функция. Да, её тоже можно положить в переменную!</td></tr>
+  </table></div>
+  <p>В Roblox есть и свои типы: <code>Vector3</code> (позиция), <code>Color3</code> (цвет), <code>Instance</code> (любой объект игры: деталь, скрипт, игрок) и другие. Их разберём в модуле про игровой мир.</p>
+
+  <h3>nil — значение «ничего»</h3>
+  <pre data-where="ServerScriptService > Script"><code>local weapon          -- не присвоили значение
+print(weapon)         --> nil
+
+local target = workspace:FindFirstChild("Boss")
+print(target)         --> nil, если объекта Boss нет в Workspace</code></pre>
+  <p>Чаще всего <code>nil</code> встречается в ошибке <code>attempt to index nil</code>. Она значит, что ты обратился к свойству того, чего нет. Например, <code>target.Name</code>, когда <code>target</code> равен nil.</p>
+
+  <h2>Узнаём тип: typeof</h2>
+  <pre data-where="ServerScriptService > Script"><code>print(typeof(42))                  --> number
+print(typeof("42"))                --> string
+print(typeof(true))                --> boolean
+print(typeof(nil))                 --> nil
+print(typeof(workspace.Baseplate)) --> Instance
+print(typeof(Vector3.new(0, 5, 0)))--> Vector3</code></pre>
+  <div class="note info"><p>Есть ещё функция <code>type</code>, она пришла из обычного Lua. Для типов Roblox она скажет просто <code>userdata</code>. В Roblox пользуйся <code>typeof</code>.</p></div>
+
+  <h3>Число и строка — не одно и то же</h3>
+  <pre data-where="ServerScriptService > Script"><code>local a = 10
+local b = "10"
+print(a == b)            --> false: число и строка не равны
+
+print(tonumber(b) + 5)   --> 15   (строку превратили в число)
+print(tostring(a) .. "!")--> 10!  (число превратили в строку)
+print(tonumber("abc"))   --> nil  (не получилось)</code></pre>
+
+  <h2>Пример из игры</h2>
+  <p>Переменные удобно использовать как настройки в начале скрипта. Захочешь поменять баланс — правишь одну строчку:</p>
+  <pre data-where="ServerScriptService > Script «PartSetup»"><code>-- Настройки
+local PART_NAME = "Platform"
+local NEW_TRANSPARENCY = 0.5
+local IS_SOLID = false
+
+-- Работа
+local part = workspace:FindFirstChild(PART_NAME)
+part.Transparency = NEW_TRANSPARENCY
+part.CanCollide = IS_SOLID
+
+print(PART_NAME, "настроена. Прозрачность:", part.Transparency)</code></pre>
+
+  <section class="quiz">
+    <h2>🧠 Проверь себя</h2>
+    <div class="q" data-correct="2">
+      <p>Что выведет код?<br><code>local x = 5</code> <code>x = x * 2</code> <code>x += 1</code> <code>print(x)</code></p>
+      <ol><li>5</li><li>10</li><li>11</li><li>12</li></ol>
+      <p class="explain">5 × 2 = 10, потом +1 = 11.</p>
+    </div>
+    <div class="q" data-correct="1">
+      <p>Какое имя переменной <b>недопустимо</b>?</p>
+      <ol><li><code>player2</code></li><li><code>2player</code></li><li><code>_temp</code></li><li><code>MAX_HP</code></li></ol>
+      <p class="explain">Имя не может начинаться с цифры.</p>
+    </div>
+    <div class="q" data-correct="3">
+      <p>Что выведет <code>print(typeof(workspace))</code>?</p>
+      <ol><li>workspace</li><li>table</li><li>userdata</li><li>Instance</li></ol>
+      <p class="explain">Workspace — объект игры, а все объекты игры имеют тип Instance.</p>
+    </div>
+    <div class="q" data-correct="0">
+      <p>Что означает <code>nil</code>?</p>
+      <ol><li>Отсутствие значения</li><li>Число ноль</li><li>Пустую строку</li><li>Ложь (false)</li></ol>
+      <p class="explain">nil — это «ничего». Ноль (<code>0</code>) и пустая строка (<code>""</code>) — уже значения.</p>
+    </div>
+  </section>
+
+  <section class="tasks">
+    <h2>📚 Задания</h2>
+    <div class="task">
+      <h3>Задание 1 <span class="level easy">лёгкое</span></h3>
+      <p>Создай переменные <code>heroName</code> (строка), <code>level</code> (число), <code>hasSword</code> (boolean). Выведи все три значения и их типы.</p>
+      <details><summary>✅ Решение</summary>
+        <pre data-where="ServerScriptService > Script"><code>local heroName = "Knight"
+local level = 7
+local hasSword = true
+
+print(heroName, typeof(heroName))
+print(level, typeof(level))
+print(hasSword, typeof(hasSword))</code></pre>
+      </details>
+    </div>
+    <div class="task">
+      <h3>Задание 2 <span class="level easy">лёгкое</span></h3>
+      <p>Игрок начинает со 100 здоровья. Его ударили на 35, потом вылечили на 20, потом ударили ещё на 50. Посчитай итоговое здоровье, меняя одну переменную <code>health</code> операторами <code>-=</code> и <code>+=</code>.</p>
+      <details><summary>✅ Решение</summary>
+        <pre data-where="ServerScriptService > Script"><code>local health = 100
+health -= 35
+health += 20
+health -= 50
+print("Здоровье:", health) --> 35</code></pre>
+      </details>
+    </div>
+    <div class="task">
+      <h3>Задание 3 <span class="level mid">среднее</span></h3>
+      <p>Сделай в Workspace деталь <code>Sign</code>. В скрипте заведи переменные-настройки: прозрачность, твёрдость (<code>CanCollide</code>) и закреплённость (<code>Anchored</code>), а потом примени их к детали. Поменяй настройки и запусти снова, не трогая остальной код.</p>
+      <details><summary>✅ Решение</summary>
+        <pre data-where="ServerScriptService > Script"><code>local TRANSPARENCY = 0.2
+local SOLID = true
+local ANCHORED = true
+
+local sign = workspace.Sign
+sign.Transparency = TRANSPARENCY
+sign.CanCollide = SOLID
+sign.Anchored = ANCHORED</code></pre>
+      </details>
+    </div>
+  </section>
+</article>
+<script src="../js/course.js"></script>
+<script src="../js/app.js"></script>
+</body>
+</html>

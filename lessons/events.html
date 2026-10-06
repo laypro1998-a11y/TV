@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>События: Connect, Touched и debounce</title>
+<link rel="stylesheet" href="../css/style.css">
+</head>
+<body data-lesson="events">
+<article class="lesson">
+  <h1>События: Connect, Touched и debounce</h1>
+  <p class="lead">Игры реагируют на происходящее: кто-то наступил на лаву, зашёл новый игрок, кнопку нажали. Всё это <b>события</b>. Умение с ними работать — граница между «скриптом, который что-то делает при запуске» и настоящей игрой.</p>
+
+  <div class="goals"><strong>🎯 После урока ты сможешь:</strong>
+    <ul>
+      <li>подписываться на события через <code>:Connect</code> и отписываться;</li>
+      <li>делать убивающие и бонусные блоки через <code>Touched</code>;</li>
+      <li>отличать персонажа от простой детали;</li>
+      <li>защищать события от многократного срабатывания (debounce).</li>
+    </ul>
+  </div>
+
+  <h2>Как устроены события</h2>
+  <p>У объектов есть свойства (Transparency), методы (Destroy()) и <b>события</b>, сигналы «что-то случилось». Ты говоришь: «когда это случится, вызови мою функцию».</p>
+  <pre data-where="Workspace > Part > Script"><code>local part = script.Parent
+
+part.Touched:Connect(function(otherPart)
+	print(otherPart.Name, "коснулся", part.Name)
+end)</code></pre>
+  <p>Скрипт выполнился сверху вниз за миллисекунду, но функция внутри Connect «ждёт». Roblox будет вызывать её <b>каждый раз</b>, когда что-то касается детали, и передавать в неё то, что коснулось.</p>
+
+  <h2>Отличаем игрока от детали</h2>
+  <p>Touched срабатывает от любой детали: от ноги персонажа, от упавшего кубика, от пули. Как понять, что это игрок?</p>
+  <p>Персонаж — модель, в которой есть <b>Humanoid</b>. Нога (LeftFoot) лежит внутри модели персонажа, значит, её Parent и есть персонаж.</p>
+  <div class="explorer">
+    <div class="ex-title">Explorer (во время игры)</div>
+    <ul><li class="svc">Workspace<ul><li class="model">Player1 <span class="cmt">— персонаж</span>
+      <ul><li class="other">Humanoid</li><li class="part">HumanoidRootPart</li><li class="part">Head</li><li class="part">LeftFoot <span class="cmt">← otherPart</span></li><li class="part">...</li></ul>
+    </li></ul></li></ul>
+  </div>
+
+  <h3>Убивающий блок (лава)</h3>
+  <pre data-where="Workspace > Lava (Part) > Script"><code>local lava = script.Parent
+
+lava.Touched:Connect(function(otherPart)
+	local character = otherPart.Parent
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	if humanoid then
+		humanoid.Health = 0
+	end
+end)</code></pre>
+  <p>Это классика обби. Сделай деталь красной, Neon, Anchored, положи в неё скрипт, и лава готова.</p>
+
+  <h3>Получаем игрока из персонажа</h3>
+  <pre data-where="Workspace > Part > Script"><code>local Players = game:GetService("Players")
+local part = script.Parent
+
+part.Touched:Connect(function(otherPart)
+	local player = Players:GetPlayerFromCharacter(otherPart.Parent)
+	if player then
+		print("Коснулся игрок:", player.Name)
+	end
+end)</code></pre>
+  <p><code>GetPlayerFromCharacter</code> возвращает игрока (Player) или nil, если это не персонаж, например NPC или просто деталь.</p>
+
+  <h2>Debounce — защита от спама</h2>
+  <p>Попробуй сделать блок, который даёт +10 очков при касании. Ты увидишь, что он срабатывает <b>десятки раз</b>: Touched вызывается для каждой части тела и при каждом микродвижении.</p>
+  <p>Решение — <b>debounce</b> («антидребезг»): переменная-флаг «сейчас нельзя».</p>
+  <pre data-where="Workspace > Button (Part) > Script"><code>local button = script.Parent
+local COOLDOWN = 2
+local isCoolingDown = false
+
+button.Touched:Connect(function(otherPart)
+	if isCoolingDown then return end          -- уже сработало недавно — выходим
+
+	local humanoid = otherPart.Parent:FindFirstChildOfClass("Humanoid")
+	if not humanoid then return end
+
+	isCoolingDown = true
+	button.BrickColor = BrickColor.new("Really red")
+	print("Кнопка нажата!")
+
+	task.wait(COOLDOWN)
+
+	button.BrickColor = BrickColor.new("Lime green")
+	isCoolingDown = false
+end)</code></pre>
+
+  <h3>Debounce для каждого игрока отдельно</h3>
+  <p>Общий флаг блокирует кнопку для всех. Часто нужно, чтобы <b>каждый</b> игрок мог взять бонус раз в N секунд. Храним флаги в таблице, где ключ — игрок:</p>
+  <pre data-where="Workspace > HealPad (Part) > Script"><code>local Players = game:GetService("Players")
+local pad = script.Parent
+local COOLDOWN = 5
+local lastUsed = {}   -- [player] = время последнего использования
+
+pad.Touched:Connect(function(otherPart)
+	local character = otherPart.Parent
+	local player = Players:GetPlayerFromCharacter(character)
+	if not player then return end
+
+	local now = os.clock()
+	if lastUsed[player] and now - lastUsed[player] &lt; COOLDOWN then
+		return
+	end
+	lastUsed[player] = now
+
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	humanoid.Health = math.min(humanoid.Health + 30, humanoid.MaxHealth)
+	print(player.Name, "подлечился")
+end)
+
+-- Чистим таблицу, когда игрок выходит, чтобы не копить мусор
+Players.PlayerRemoving:Connect(function(player)
+	lastUsed[player] = nil
+end)</code></pre>
+
+  <h2>TouchEnded и другие события детали</h2>
+  <ul>
+    <li><code>Touched</code> — касание началось;</li>
+    <li><code>TouchEnded</code> — касание закончилось (срабатывает нестабильно, для зон лучше проверять расстояние или использовать <code>GetPartsInPart</code>);</li>
+    <li><code>Changed</code> / <code>GetPropertyChangedSignal("Имя")</code> — свойство изменилось;</li>
+    <li><code>ChildAdded</code> / <code>ChildRemoved</code> — у объекта появился или пропал ребёнок;</li>
+    <li><code>Destroying</code> — объект вот-вот удалят.</li>
+  </ul>
+  <pre data-where="ServerScriptService > Script"><code>local part = workspace:WaitForChild("Block")
+
+part:GetPropertyChangedSignal("Transparency"):Connect(function()
+	print("Прозрачность стала", part.Transparency)
+end)
+
+workspace.ChildAdded:Connect(function(child)
+	print("В Workspace появился", child.Name)
+end)</code></pre>
+
+  <h2>Отписка: Disconnect и Once</h2>
+  <p><code>Connect</code> возвращает <b>соединение</b>. Его можно разорвать, и функция больше не будет вызываться.</p>
+  <pre data-where="Workspace > Part > Script"><code>local part = script.Parent
+local connection
+
+connection = part.Touched:Connect(function(otherPart)
+	print("Первое касание:", otherPart.Name)
+	connection:Disconnect()   -- больше не слушаем
+end)
+
+-- То же самое короче: Once срабатывает только один раз
+part.Touched:Once(function(otherPart)
+	print("Тоже только один раз")
+end)</code></pre>
+
+  <h2>Ждать события: Wait</h2>
+  <p>Иногда нужно не подписаться, а <b>остановить скрипт</b>, пока событие не произойдёт:</p>
+  <pre data-where="Workspace > Part > Script"><code>local part = script.Parent
+print("Жду касания...")
+local hit = part.Touched:Wait()   -- скрипт стоит здесь
+print("Дождался! Коснулся:", hit.Name)</code></pre>
+
+  <section class="quiz">
+    <h2>🧠 Проверь себя</h2>
+    <div class="q" data-correct="2">
+      <p>Почему блок с Touched начисляет очки много раз за одно касание?</p>
+      <ol><li>Это баг Roblox</li><li>Скрипт выполняется в цикле</li><li>Touched срабатывает для каждой части тела и при движении</li><li>Нужно использовать LocalScript</li></ol>
+      <p class="explain">Поэтому нужен debounce.</p>
+    </div>
+    <div class="q" data-correct="0">
+      <p>Как понять, что otherPart — часть персонажа?</p>
+      <ol><li>Проверить, есть ли Humanoid у <code>otherPart.Parent</code></li><li>Проверить <code>otherPart.Name == "Player"</code></li><li>Проверить <code>otherPart.Anchored</code></li><li>Никак</li></ol>
+      <p class="explain">Персонаж — это модель с Humanoid. Ещё вариант: <code>Players:GetPlayerFromCharacter(otherPart.Parent)</code>.</p>
+    </div>
+    <div class="q" data-correct="3">
+      <p>Что делает <code>connection:Disconnect()</code>?</p>
+      <ol><li>Удаляет деталь</li><li>Отключает игрока от сервера</li><li>Ставит событие на паузу на 1 секунду</li><li>Отписывает функцию от события</li></ol>
+      <p class="explain">После Disconnect функция больше не будет вызываться.</p>
+    </div>
+    <div class="q" data-correct="1">
+      <p>Зачем в примере с HealPad очищать таблицу в <code>PlayerRemoving</code>?</p>
+      <ol><li>Иначе будет ошибка</li><li>Чтобы таблица не росла бесконечно от вышедших игроков</li><li>Чтобы игрок не мог вернуться</li><li>Это не нужно</li></ol>
+      <p class="explain">Сервер может работать часами, и записи о давно вышедших игроках будут копиться. Это утечка памяти.</p>
+    </div>
+  </section>
+
+  <section class="tasks">
+    <h2>📚 Задания</h2>
+    <div class="task">
+      <h3>Задание 1 <span class="level easy">лёгкое</span></h3>
+      <p>Сделай «прыгалку»: при касании персонаж подлетает вверх. Подсказка: у Humanoid есть свойство <code>JumpPower</code>, но проще задать скорость главной детали: <code>rootPart.AssemblyLinearVelocity = Vector3.new(0, 100, 0)</code>.</p>
+      <details><summary>✅ Решение</summary>
+        <pre data-where="Workspace > Trampoline (Part) > Script"><code>local pad = script.Parent
+
+pad.Touched:Connect(function(otherPart)
+	local character = otherPart.Parent
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	local root = character:FindFirstChild("HumanoidRootPart")
+	if humanoid and root then
+		root.AssemblyLinearVelocity = Vector3.new(0, 100, 0)
+	end
+end)</code></pre>
+      </details>
+    </div>
+    <div class="task">
+      <h3>Задание 2 <span class="level mid">среднее</span></h3>
+      <p>Сделай исчезающую платформу: когда на неё наступает игрок, она через 0.5 секунды становится прозрачной и проходимой, а через 3 секунды возвращается. Используй debounce, чтобы она не «мигала».</p>
+      <details><summary>✅ Решение</summary>
+        <pre data-where="Workspace > FadingPlatform (Part) > Script"><code>local platform = script.Parent
+local busy = false
+
+platform.Touched:Connect(function(otherPart)
+	if busy then return end
+	if not otherPart.Parent:FindFirstChildOfClass("Humanoid") then return end
+	busy = true
+
+	task.wait(0.5)
+	platform.Transparency = 0.8
+	platform.CanCollide = false
+
+	task.wait(3)
+	platform.Transparency = 0
+	platform.CanCollide = true
+	busy = false
+end)</code></pre>
+      </details>
+    </div>
+    <div class="task">
+      <h3>Задание 3 <span class="level hard">сложное</span></h3>
+      <p>Сделай <b>одним скриптом</b> в ServerScriptService так, чтобы все детали из папки <code>workspace.KillBricks</code> убивали игроков. Детали, которые добавят в папку <b>во время игры</b>, тоже должны работать.</p>
+      <details><summary>💡 Подсказка</summary><p>Напиши функцию <code>setupKillBrick(part)</code>. Вызови её для всех текущих детей папки и подпишись на <code>ChildAdded</code>.</p></details>
+      <details><summary>✅ Решение</summary>
+        <pre data-where="ServerScriptService > Script «KillBricks»"><code>local folder = workspace:WaitForChild("KillBricks")
+
+local function setupKillBrick(part)
+	if not part:IsA("BasePart") then return end
+	part.Touched:Connect(function(otherPart)
+		local humanoid = otherPart.Parent:FindFirstChildOfClass("Humanoid")
+		if humanoid then
+			humanoid.Health = 0
+		end
+	end)
+end
+
+for _, part in folder:GetChildren() do
+	setupKillBrick(part)
+end
+folder.ChildAdded:Connect(setupKillBrick)</code></pre>
+        <p>Вместо десятков одинаковых скриптов у нас один, и его легко поменять.</p>
+      </details>
+    </div>
+  </section>
+</article>
+<script src="../js/course.js"></script>
+<script src="../js/app.js"></script>
+</body>
+</html>

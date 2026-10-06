@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Условия: if, and, or, not</title>
+<link rel="stylesheet" href="../css/style.css">
+</head>
+<body data-lesson="conditions">
+<article class="lesson">
+  <h1>Условия: if, and, or, not</h1>
+  <p class="lead">Игра постоянно принимает решения: хватает ли денег, жив ли игрок, в нужной ли он команде. Для этого и нужны условия.</p>
+
+  <div class="goals"><strong>🎯 После урока ты сможешь:</strong>
+    <ul>
+      <li>писать <code>if / elseif / else</code>;</li>
+      <li>объединять условия через <code>and</code>, <code>or</code>, <code>not</code>;</li>
+      <li>понимать, что в Luau считается «правдой», а что «ложью»;</li>
+      <li>делать «ранний выход» через <code>return</code>.</li>
+    </ul>
+  </div>
+
+  <h2>Конструкция if</h2>
+  <pre data-where="ServerScriptService > Script"><code>local coins = 120
+local price = 100
+
+if coins >= price then
+	coins -= price
+	print("Покупка успешна! Осталось:", coins)
+end</code></pre>
+  <p>Читается так: «<b>если</b> условие верно, <b>то</b> выполни код до <b>end</b>». Код внутри принято сдвигать на один <kbd>Tab</kbd>, так видно, что он относится к if.</p>
+
+  <h3>else и elseif</h3>
+  <pre data-where="ServerScriptService > Script"><code>local health = 35
+
+if health &lt;= 0 then
+	print("Игрок погиб")
+elseif health &lt; 30 then
+	print("Критическое здоровье!")
+elseif health &lt; 70 then
+	print("Ранен")
+else
+	print("Полностью здоров")
+end</code></pre>
+  <p>Условия проверяются <b>сверху вниз</b>, выполняется <b>первая</b> подходящая ветка, остальные пропускаются. Здесь сработает «Ранен», потому что 35 не ≤ 0 и не &lt; 30, но &lt; 70.</p>
+
+  <h2>and, or, not</h2>
+  <div class="table-wrap"><table>
+    <tr><th>Оператор</th><th>Значит</th><th>Пример</th></tr>
+    <tr><td><code>and</code></td><td>И: оба условия должны быть верны</td><td><code>level &gt;= 10 and coins &gt;= 500</code></td></tr>
+    <tr><td><code>or</code></td><td>ИЛИ: хотя бы одно верно</td><td><code>isAdmin or isOwner</code></td></tr>
+    <tr><td><code>not</code></td><td>НЕ: переворачивает true ↔ false</td><td><code>not isAlive</code></td></tr>
+  </table></div>
+  <pre data-where="ServerScriptService > Script"><code>local level = 12
+local hasKey = false
+local isVip = true
+
+if level >= 10 and hasKey then
+	print("Дверь в подземелье открыта")
+end
+
+if hasKey or isVip then
+	print("Вход в VIP-комнату разрешён")
+end
+
+if not hasKey then
+	print("Найди ключ!")
+end</code></pre>
+
+  <h2>Что считается правдой</h2>
+  <p>В Luau <b>ложными</b> считаются только два значения: <code>false</code> и <code>nil</code>. <b>Всё остальное — правда</b>, даже <code>0</code> и пустая строка <code>""</code>.</p>
+  <p>Отсюда очень частый приём в Roblox: проверка «существует ли объект».</p>
+  <pre data-where="ServerScriptService > Script"><code>local boss = workspace:FindFirstChild("Boss")
+
+if boss then
+	print("Босс на месте:", boss.Name)
+else
+	print("Босса нет на карте")
+end</code></pre>
+  <p><code>FindFirstChild</code> возвращает объект или <code>nil</code>. Если объекта нет, условие ложное и мы не получим ошибку <code>attempt to index nil</code>.</p>
+
+  <h2>Значение по умолчанию: or</h2>
+  <p><code>a or b</code> возвращает <code>a</code>, если оно «правдивое», иначе <code>b</code>. Удобно для значений по умолчанию:</p>
+  <pre data-where="ServerScriptService > Script"><code>local savedCoins = nil           -- например, данных ещё нет
+local coins = savedCoins or 0    -- если nil, берём 0
+print(coins)                     --> 0</code></pre>
+
+  <h2>if-выражение</h2>
+  <p>В Luau можно выбрать одно из двух значений прямо в одной строке:</p>
+  <pre data-where="ServerScriptService > Script"><code>local health = 15
+local status = if health > 20 then "OK" else "Опасно"
+print(status) --> Опасно
+
+local color = if health > 50 then "Lime green"
+	elseif health > 20 then "Bright yellow"
+	else "Really red"</code></pre>
+
+  <h2>Ранний выход (guard)</h2>
+  <p>Когда проверок много, вложенные if превращаются в «лестницу». Опытные разработчики делают наоборот: проверяют плохие случаи и сразу выходят через <code>return</code>.</p>
+  <pre data-where="ServerScriptService > Script"><code>-- ❌ Лестница
+local function buy(coins, price, inStock)
+	if inStock then
+		if coins >= price then
+			print("Куплено")
+		end
+	end
+end
+
+-- ✅ Ранний выход: читается сверху вниз
+local function buyBetter(coins, price, inStock)
+	if not inStock then return end
+	if coins &lt; price then return end
+	print("Куплено")
+end</code></pre>
+  <p>Про функции подробно поговорим через урок, пока запомни сам приём.</p>
+
+  <h2>Пример из игры: проверка команды</h2>
+  <pre data-where="ServerScriptService > Script"><code>local playerTeam = "Red"
+local zoneOwner = "Blue"
+local isGameRunning = true
+
+if not isGameRunning then
+	print("Игра ещё не началась")
+elseif playerTeam == zoneOwner then
+	print("Это ваша зона")
+else
+	print("Вы захватываете зону команды " .. zoneOwner .. "!")
+end</code></pre>
+
+  <section class="quiz">
+    <h2>🧠 Проверь себя</h2>
+    <div class="q" data-correct="2">
+      <p>Какое из значений считается «ложью» в условии?</p>
+      <ol><li><code>0</code></li><li><code>""</code></li><li><code>nil</code></li><li><code>"false"</code></li></ol>
+      <p class="explain">Ложны только <code>false</code> и <code>nil</code>. Строка <code>"false"</code> — это просто текст, а значит, правда.</p>
+    </div>
+    <div class="q" data-correct="1">
+      <p>Что выведет код при <code>x = 7</code>?<br><code>if x > 5 then print("A") elseif x > 3 then print("B") else print("C") end</code></p>
+      <ol><li>A и B</li><li>A</li><li>B</li><li>C</li></ol>
+      <p class="explain">Срабатывает только первая подходящая ветка.</p>
+    </div>
+    <div class="q" data-correct="0">
+      <p>Чему равно <code>nil or "Гость"</code>?</p>
+      <ol><li>"Гость"</li><li>nil</li><li>true</li><li>Ошибка</li></ol>
+      <p class="explain">Первое значение ложное, поэтому or возвращает второе.</p>
+    </div>
+    <div class="q" data-correct="3">
+      <p>Зачем писать <code>if part then ... end</code> после <code>FindFirstChild</code>?</p>
+      <ol><li>Чтобы скрипт работал быстрее</li><li>Это обязательно по синтаксису</li><li>Чтобы деталь стала видимой</li><li>Чтобы не было ошибки, если объект не найден</li></ol>
+      <p class="explain">FindFirstChild возвращает nil, если объекта нет, и обращение к свойствам nil вызовет ошибку.</p>
+    </div>
+  </section>
+
+  <section class="tasks">
+    <h2>📚 Задания</h2>
+    <div class="task">
+      <h3>Задание 1 <span class="level easy">лёгкое</span></h3>
+      <p>Есть переменная <code>score</code>. Выведи оценку: 90 и больше — «S», 70–89 — «A», 50–69 — «B», меньше 50 — «C».</p>
+      <details><summary>✅ Решение</summary>
+        <pre data-where="ServerScriptService > Script"><code>local score = 76
+local grade
+
+if score >= 90 then
+	grade = "S"
+elseif score >= 70 then
+	grade = "A"
+elseif score >= 50 then
+	grade = "B"
+else
+	grade = "C"
+end
+
+print("Оценка:", grade)</code></pre>
+      </details>
+    </div>
+    <div class="task">
+      <h3>Задание 2 <span class="level mid">среднее</span></h3>
+      <p>Проход в зону босса разрешён, если у игрока уровень от 20 <b>и</b> (есть ключ <b>или</b> он VIP), <b>и</b> он не в бане. Напиши условие и проверь на разных значениях.</p>
+      <details><summary>✅ Решение</summary>
+        <pre data-where="ServerScriptService > Script"><code>local level = 25
+local hasKey = false
+local isVip = true
+local isBanned = false
+
+if level >= 20 and (hasKey or isVip) and not isBanned then
+	print("Проходи!")
+else
+	print("Вход закрыт")
+end</code></pre>
+        <p>Скобки важны: <code>and</code> выполняется раньше <code>or</code>, и без скобок смысл изменится.</p>
+      </details>
+    </div>
+    <div class="task">
+      <h3>Задание 3 <span class="level mid">среднее</span></h3>
+      <p>Найди в Workspace деталь <code>Lamp</code> через <code>FindFirstChild</code>. Если она есть, сделай её материал <code>Enum.Material.Neon</code>, иначе выведи предупреждение через <code>warn</code>. Проверь оба случая: с деталью и без неё.</p>
+      <details><summary>✅ Решение</summary>
+        <pre data-where="ServerScriptService > Script"><code>local lamp = workspace:FindFirstChild("Lamp")
+
+if lamp then
+	lamp.Material = Enum.Material.Neon
+	print("Лампа включена")
+else
+	warn("Лампа не найдена! Добавь деталь Lamp в Workspace")
+end</code></pre>
+      </details>
+    </div>
+  </section>
+</article>
+<script src="../js/course.js"></script>
+<script src="../js/app.js"></script>
+</body>
+</html>

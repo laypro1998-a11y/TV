@@ -1,0 +1,606 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Проект: симулятор с магазином</title>
+<link rel="stylesheet" href="../css/style.css">
+</head>
+<body data-lesson="project-simulator">
+<article class="lesson">
+  <h1>Проект: симулятор с магазином</h1>
+  <p class="lead">Собираем полноценную систему, как в популярных симуляторах: клик приносит монеты, по карте разбросаны сферы с наградой, в магазине продаются улучшения-множители, а прогресс сохраняется. Здесь работают вместе всё, что ты изучил: модули, Remote, GUI, DataStore, защита от читов.</p>
+
+  <div class="goals"><strong>🎯 Что получится:</strong>
+    <ul>
+      <li>кнопка «Клик» с серверным подсчётом и защитой от автокликеров;</li>
+      <li>светящиеся сферы на карте, которые можно собирать;</li>
+      <li>магазин улучшений с проверкой покупок на сервере;</li>
+      <li>сохранение монет и покупок через DataStore.</li>
+    </ul>
+  </div>
+
+  <h2>Шаг 1. Структура проекта</h2>
+  <p>Сначала создай в Studio все объекты. Имена должны совпадать <b>точно</b>, с учётом регистра.</p>
+  <div class="explorer">
+    <div class="ex-title">Explorer</div>
+    <ul>
+      <li class="svc">ReplicatedStorage
+        <ul>
+          <li class="folder">Shared<ul><li class="module">Config</li></ul></li>
+          <li class="folder">Remotes
+            <ul><li class="remote">Click <span class="cmt">RemoteEvent</span></li><li class="func">BuyUpgrade <span class="cmt">RemoteFunction</span></li></ul>
+          </li>
+        </ul>
+      </li>
+      <li class="svc">ServerScriptService
+        <ul>
+          <li class="folder">Modules<ul><li class="module">DataService</li></ul></li>
+          <li class="script">SimulatorServer</li>
+        </ul>
+      </li>
+      <li class="svc">StarterGui
+        <ul><li class="gui">SimulatorGui <span class="cmt">ScreenGui, ResetOnSpawn = false</span>
+          <ul>
+            <li class="gui">CoinsLabel <span class="cmt">TextLabel</span></li>
+            <li class="gui">MultiplierLabel <span class="cmt">TextLabel</span></li>
+            <li class="gui">ClickButton <span class="cmt">TextButton</span></li>
+            <li class="gui">ShopButton <span class="cmt">TextButton</span></li>
+            <li class="gui">MessageLabel <span class="cmt">TextLabel</span></li>
+            <li class="gui">ShopFrame <span class="cmt">Frame, Visible = false</span>
+              <ul><li class="gui">List <span class="cmt">ScrollingFrame + UIListLayout</span></li><li class="gui">CloseButton <span class="cmt">TextButton</span></li></ul>
+            </li>
+            <li class="local">SimulatorClient</li>
+          </ul>
+        </li></ul>
+      </li>
+    </ul>
+  </div>
+  <div class="note tip"><p>У ScrollingFrame <code>List</code> поставь <code>AutomaticCanvasSize = Y</code> и <code>CanvasSize = {0,0},{0,0}</code>, чтобы прокрутка подстраивалась под количество товаров.</p></div>
+
+  <h2>Шаг 2. Конфиг</h2>
+  <p>Все числа игры в одном месте. Модуль лежит в ReplicatedStorage: клиенту он нужен, чтобы показать товары, серверу — чтобы проверить цены. Секретов тут нет.</p>
+  <pre data-where="ReplicatedStorage > Shared > ModuleScript «Config»"><code>local Config = {}
+
+Config.ClickReward = 1
+Config.MaxClicksPerSecond = 15     -- больше уже похоже на автокликер
+
+Config.OrbReward = 10
+Config.OrbSpawnInterval = 3
+Config.MaxOrbs = 20
+Config.OrbArea = 60                -- сферы появляются в квадрате ±60 студов
+
+Config.Upgrades = {
+	{id = "Gloves", name = "Перчатки", price = 50,    multiplier = 2},
+	{id = "Hammer", name = "Молот",    price = 400,   multiplier = 3},
+	{id = "Robot",  name = "Робот",    price = 3000,  multiplier = 5},
+	{id = "Rocket", name = "Ракета",   price = 25000, multiplier = 10},
+}
+
+function Config.getUpgrade(id)
+	for _, upgrade in Config.Upgrades do
+		if upgrade.id == id then
+			return upgrade
+		end
+	end
+	return nil
+end
+
+return Config</code></pre>
+
+  <h2>Шаг 3. Сервис данных</h2>
+  <p>Модуль отвечает только за данные: загрузку, сохранение и монеты. Главное правило: <b>источник правды — таблица <code>sessionData</code></b>, а leaderstats только показывают значение.</p>
+  <pre data-where="ServerScriptService > Modules > ModuleScript «DataService»"><code>local Players = game:GetService("Players")
+local DataStoreService = game:GetService("DataStoreService")
+
+local store = DataStoreService:GetDataStore("Simulator_v1")
+local AUTOSAVE_INTERVAL = 120
+
+local DataService = {}
+local sessionData = {}  -- [player] = {coins = number, owned = {string}}
+
+-- BindableEvent — как RemoteEvent, но для общения скриптов на ОДНОЙ стороне
+local loadedEvent = Instance.new("BindableEvent")
+DataService.PlayerLoaded = loadedEvent.Event
+
+local function getKey(player)
+	return "Player_" .. player.UserId
+end
+
+local function load(player)
+	for attempt = 1, 3 do
+		local ok, result = pcall(function()
+			return store:GetAsync(getKey(player))
+		end)
+		if ok then
+			return true, result
+		end
+		warn(`[DataService] Загрузка {player.Name}, попытка {attempt}: {result}`)
+		task.wait(2)
+	end
+	return false, nil
+end
+
+local function save(player)
+	local data = sessionData[player]
+	if not data then return end  -- не загружено — не сохраняем, чтобы не затереть
+	local ok, err = pcall(function()
+		store:UpdateAsync(getKey(player), function()
+			return data
+		end)
+	end)
+	if not ok then
+		warn(`[DataService] Не удалось сохранить {player.Name}: {err}`)
+	end
+end
+
+local function onPlayerAdded(player)
+	local leaderstats = Instance.new("Folder")
+	leaderstats.Name = "leaderstats"
+	local coins = Instance.new("IntValue")
+	coins.Name = "Coins"
+	coins.Parent = leaderstats
+	leaderstats.Parent = player
+
+	local ok, saved = load(player)
+	if not ok then
+		player:Kick("Не удалось загрузить сохранение. Перезайдите через минуту.")
+		return
+	end
+	if not player.Parent then return end  -- игрок успел выйти, пока грузились данные
+
+	local data = {coins = 0, owned = {}}
+	if typeof(saved) == "table" then
+		data.coins = saved.coins or 0
+		data.owned = saved.owned or {}
+	end
+
+	sessionData[player] = data
+	coins.Value = data.coins
+	loadedEvent:Fire(player, data)
+end
+
+function DataService.get(player)
+	return sessionData[player]
+end
+
+function DataService.addCoins(player, amount)
+	local data = sessionData[player]
+	if not data then return end
+	data.coins += math.floor(amount)  -- только целые: IntValue не хранит дроби
+	player.leaderstats.Coins.Value = data.coins
+end
+
+function DataService.start()
+	Players.PlayerAdded:Connect(onPlayerAdded)
+	for _, player in Players:GetPlayers() do
+		task.spawn(onPlayerAdded, player)
+	end
+
+	Players.PlayerRemoving:Connect(function(player)
+		save(player)
+		sessionData[player] = nil
+	end)
+
+	game:BindToClose(function()
+		local pending = 0
+		for _, player in Players:GetPlayers() do
+			pending += 1
+			task.spawn(function()
+				save(player)
+				pending -= 1
+			end)
+		end
+		while pending > 0 do
+			task.wait()
+		end
+	end)
+
+	task.spawn(function()
+		while true do
+			task.wait(AUTOSAVE_INTERVAL)
+			for _, player in Players:GetPlayers() do
+				task.spawn(save, player)
+			end
+		end
+	end)
+end
+
+return DataService</code></pre>
+
+  <h2>Шаг 4. Серверная логика</h2>
+  <p>Главный серверный скрипт: клики, покупки и сферы. Обрати внимание на проверки в каждом обработчике Remote.</p>
+  <pre data-where="ServerScriptService > Script «SimulatorServer»"><code>local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ServerScriptService = game:GetService("ServerScriptService")
+
+local Config = require(ReplicatedStorage.Shared.Config)
+local DataService = require(ServerScriptService.Modules.DataService)
+
+local remotes = ReplicatedStorage.Remotes
+local clickRemote = remotes.Click
+local buyRemote = remotes.BuyUpgrade
+
+-- ===== Множитель =====
+local function calcMultiplier(data)
+	local multiplier = 1
+	for _, id in data.owned do
+		local upgrade = Config.getUpgrade(id)
+		if upgrade then
+			multiplier *= upgrade.multiplier
+		end
+	end
+	return multiplier
+end
+
+-- Атрибуты на Player реплицируются клиентам — так интерфейс узнаёт о покупках
+local function refreshAttributes(player, data)
+	player:SetAttribute("Multiplier", calcMultiplier(data))
+	for _, id in data.owned do
+		player:SetAttribute("Owned_" .. id, true)
+	end
+end
+
+DataService.PlayerLoaded:Connect(refreshAttributes)
+DataService.start()
+
+-- ===== Клики =====
+local clickWindows = {}  -- [player] = {start = время, count = кликов}
+
+clickRemote.OnServerEvent:Connect(function(player)
+	if not DataService.get(player) then return end
+
+	local now = os.clock()
+	local window = clickWindows[player]
+	if not window or now - window.start >= 1 then
+		window = {start = now, count = 0}
+		clickWindows[player] = window
+	end
+	window.count += 1
+	if window.count > Config.MaxClicksPerSecond then
+		return  -- слишком часто: лишние клики просто не засчитываем
+	end
+
+	local multiplier = player:GetAttribute("Multiplier") or 1
+	DataService.addCoins(player, Config.ClickReward * multiplier)
+end)
+
+Players.PlayerRemoving:Connect(function(player)
+	clickWindows[player] = nil
+end)
+
+-- ===== Покупки =====
+buyRemote.OnServerInvoke = function(player, upgradeId)
+	if typeof(upgradeId) ~= "string" then
+		return false, "Некорректный запрос"
+	end
+
+	local data = DataService.get(player)
+	if not data then
+		return false, "Данные ещё загружаются"
+	end
+
+	local upgrade = Config.getUpgrade(upgradeId)
+	if not upgrade then
+		return false, "Такого улучшения нет"
+	end
+	if table.find(data.owned, upgradeId) then
+		return false, "Уже куплено"
+	end
+	if data.coins &lt; upgrade.price then
+		return false, "Не хватает монет"
+	end
+
+	DataService.addCoins(player, -upgrade.price)
+	table.insert(data.owned, upgradeId)
+	refreshAttributes(player, data)
+	return true, `Куплено: {upgrade.name}! Множитель x{player:GetAttribute("Multiplier")}`
+end
+
+-- ===== Сферы на карте =====
+local orbsFolder = Instance.new("Folder")
+orbsFolder.Name = "Orbs"
+orbsFolder.Parent = workspace
+
+local function spawnOrb()
+	local orb = Instance.new("Part")
+	orb.Name = "Orb"
+	orb.Shape = Enum.PartType.Ball
+	orb.Size = Vector3.new(2, 2, 2)
+	orb.Material = Enum.Material.Neon
+	orb.Color = Color3.fromRGB(255, 210, 60)
+	orb.Anchored = true
+	orb.CanCollide = false
+	local area = Config.OrbArea
+	orb.Position = Vector3.new(math.random(-area, area), 3, math.random(-area, area))
+	orb.Parent = orbsFolder
+
+	local taken = false
+	orb.Touched:Connect(function(hit)
+		if taken then return end
+		local player = Players:GetPlayerFromCharacter(hit.Parent)
+		if not player or not DataService.get(player) then return end
+
+		taken = true
+		local multiplier = player:GetAttribute("Multiplier") or 1
+		DataService.addCoins(player, Config.OrbReward * multiplier)
+		orb:Destroy()
+	end)
+end
+
+task.spawn(function()
+	while true do
+		task.wait(Config.OrbSpawnInterval)
+		if #orbsFolder:GetChildren() &lt; Config.MaxOrbs then
+			spawnOrb()
+		end
+	end
+end)</code></pre>
+  <div class="note info"><p><b>Почему атрибуты?</b> Клиенту нужно знать множитель и купленные улучшения, чтобы показать их в интерфейсе. Атрибут, установленный сервером на объекте Player, автоматически долетает до клиентов. Это проще, чем отдельный RemoteEvent. Клиент тоже может поменять атрибут у себя, но сервер этого не увидит: он читает своё значение.</p></div>
+
+  <h2>Шаг 5. Интерфейс</h2>
+  <p>Клиент только <b>показывает</b> данные и <b>просит</b> сервер о действиях. Ни одной строчки, которая меняет монеты.</p>
+  <pre data-where="StarterGui > SimulatorGui > LocalScript «SimulatorClient»"><code>local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
+
+local player = Players.LocalPlayer
+local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"))
+local remotes = ReplicatedStorage:WaitForChild("Remotes")
+local clickRemote = remotes:WaitForChild("Click")
+local buyRemote = remotes:WaitForChild("BuyUpgrade")
+
+local gui = script.Parent
+local coinsLabel = gui:WaitForChild("CoinsLabel")
+local multiplierLabel = gui:WaitForChild("MultiplierLabel")
+local clickButton = gui:WaitForChild("ClickButton")
+local shopButton = gui:WaitForChild("ShopButton")
+local messageLabel = gui:WaitForChild("MessageLabel")
+local shopFrame = gui:WaitForChild("ShopFrame")
+local list = shopFrame:WaitForChild("List")
+local closeButton = shopFrame:WaitForChild("CloseButton")
+
+-- ===== Вспомогательное =====
+local function formatNumber(n)
+	if n >= 1e6 then
+		return string.format("%.1fM", n / 1e6)
+	elseif n >= 1e3 then
+		return string.format("%.1fK", n / 1e3)
+	end
+	return tostring(n)
+end
+
+local messageToken = 0
+local function showMessage(text, isGood)
+	messageToken += 1
+	local myToken = messageToken
+	messageLabel.Text = text
+	messageLabel.TextColor3 = if isGood then Color3.fromRGB(90, 230, 120) else Color3.fromRGB(255, 90, 90)
+	messageLabel.Visible = true
+	task.delay(2, function()
+		if messageToken == myToken then  -- не прячем, если уже показали новое сообщение
+			messageLabel.Visible = false
+		end
+	end)
+end
+messageLabel.Visible = false
+
+-- ===== Монеты и множитель =====
+local coins = player:WaitForChild("leaderstats"):WaitForChild("Coins")
+
+local function updateCoins()
+	coinsLabel.Text = "💰 " .. formatNumber(coins.Value)
+end
+local function updateMultiplier()
+	multiplierLabel.Text = "✖ " .. (player:GetAttribute("Multiplier") or 1)
+end
+
+updateCoins()
+updateMultiplier()
+coins.Changed:Connect(updateCoins)
+player:GetAttributeChangedSignal("Multiplier"):Connect(updateMultiplier)
+
+-- ===== Клик =====
+local baseSize = clickButton.Size
+local popInfo = TweenInfo.new(0.08, Enum.EasingStyle.Quad, Enum.EasingDirection.Out, 0, true)
+
+clickButton.Activated:Connect(function()
+	clickRemote:FireServer()
+	clickButton.Size = baseSize
+	TweenService:Create(clickButton, popInfo, {
+		Size = UDim2.new(baseSize.X.Scale * 0.92, baseSize.X.Offset, baseSize.Y.Scale * 0.92, baseSize.Y.Offset),
+	}):Play()
+end)
+
+-- ===== Магазин =====
+shopFrame.Visible = false
+shopButton.Activated:Connect(function()
+	shopFrame.Visible = not shopFrame.Visible
+end)
+closeButton.Activated:Connect(function()
+	shopFrame.Visible = false
+end)
+
+for index, upgrade in Config.Upgrades do
+	local button = Instance.new("TextButton")
+	button.Name = upgrade.id
+	button.LayoutOrder = index
+	button.Size = UDim2.new(1, -10, 0, 50)
+	button.TextScaled = true
+	button.Parent = list
+
+	local function refresh()
+		local owned = player:GetAttribute("Owned_" .. upgrade.id)
+		if owned then
+			button.Text = `✅ {upgrade.name} (x{upgrade.multiplier})`
+			button.BackgroundColor3 = Color3.fromRGB(70, 160, 90)
+		else
+			button.Text = `{upgrade.name} — x{upgrade.multiplier} — 💰 {formatNumber(upgrade.price)}`
+			button.BackgroundColor3 = Color3.fromRGB(60, 90, 180)
+		end
+	end
+	refresh()
+	player:GetAttributeChangedSignal("Owned_" .. upgrade.id):Connect(refresh)
+
+	local busy = false
+	button.Activated:Connect(function()
+		if busy then return end
+		busy = true
+		local ok, message = buyRemote:InvokeServer(upgrade.id)
+		showMessage(message, ok)
+		busy = false
+	end)
+end</code></pre>
+
+  <h2>Шаг 6. Проверка</h2>
+  <p>Опубликуй игру и включи доступ к API (см. урок про DataStore). Пройди по списку:</p>
+  <ol>
+    <li>Клик даёт +1 монету. Число в углу экрана и в таблице лидеров совпадает.</li>
+    <li>Сферы появляются каждые 3 секунды, касание даёт +10.</li>
+    <li>Без денег покупка показывает «Не хватает монет».</li>
+    <li>После покупки «Перчаток» клик даёт +2, сфера +20, кнопка стала зелёной.</li>
+    <li>Выйди и зайди снова: монеты и покупки на месте.</li>
+    <li>Проверка на читерство: в режиме клиента поменяй <code>Coins.Value</code> в Properties. Число изменится только у тебя, а при следующем клике сервер вернёт настоящее значение.</li>
+  </ol>
+
+  <h2>Почему это сделано именно так</h2>
+  <div class="table-wrap"><table>
+    <tr><th>Решение</th><th>Зачем</th></tr>
+    <tr><td>Клиент шлёт «я кликнул», а не «дай N монет»</td><td>Читер не может выбрать награду</td></tr>
+    <tr><td>Лимит кликов в секунду на сервере</td><td>Автокликер с 1000 кликов/сек получит максимум 15</td></tr>
+    <tr><td>Клиент шлёт id улучшения, а цену берёт сервер</td><td>Нельзя купить за 0 или за отрицательную цену</td></tr>
+    <tr><td>RemoteFunction для покупки</td><td>Клиент получает ответ и показывает понятное сообщение</td></tr>
+    <tr><td>Данные в sessionData, leaderstats только показывают</td><td>Изменения leaderstats на клиенте ни на что не влияют</td></tr>
+    <tr><td>Кик при ошибке загрузки</td><td>Пустые данные не затрут настоящий прогресс</td></tr>
+  </table></div>
+
+  <section class="quiz">
+    <h2>🧠 Проверь себя</h2>
+    <div class="q" data-correct="2">
+      <p>Читер вызывает <code>BuyUpgrade:InvokeServer("Rocket")</code>, имея 10 монет. Что будет?</p>
+      <ol><li>Купит Ракету</li><li>Сервер упадёт с ошибкой</li><li>Получит ответ «Не хватает монет»</li><li>Монеты уйдут в минус</li></ol>
+      <p class="explain">Сервер сравнивает цену из своего конфига с данными игрока.</p>
+    </div>
+    <div class="q" data-correct="0">
+      <p>Зачем DataService отправляет событие PlayerLoaded?</p>
+      <ol><li>Чтобы другие серверные скрипты узнали, что данные игрока готовы</li><li>Чтобы клиент узнал о загрузке</li><li>Чтобы сохранить данные</li><li>Для красоты</li></ol>
+      <p class="explain">BindableEvent работает внутри сервера. SimulatorServer по нему выставляет атрибуты.</p>
+    </div>
+    <div class="q" data-correct="1">
+      <p>Где интерфейс узнаёт, что улучшение куплено?</p>
+      <ol><li>Из DataStore</li><li>Из атрибута <code>Owned_id</code> на Player, который выставил сервер</li><li>Из Config</li><li>Клиент сам запоминает покупку</li></ol>
+      <p class="explain">Атрибуты, выставленные сервером, реплицируются клиентам, и срабатывает GetAttributeChangedSignal.</p>
+    </div>
+  </section>
+
+  <section class="tasks">
+    <h2>📚 Задания: развиваем симулятор</h2>
+    <div class="task">
+      <h3>Задание 1 <span class="level easy">лёгкое</span></h3>
+      <p>Добавь эффект при сборе сферы: перед удалением сфера проигрывает звук и создаёт вспышку (<code>ParticleEmitter</code> с <code>:Emit(20)</code>) в точке сбора.</p>
+      <details><summary>💡 Подсказка</summary><p>Создай невидимую Anchored-деталь в позиции сферы, положи в неё ParticleEmitter и Sound, вызови <code>emitter:Emit(20)</code> и <code>sound:Play()</code>, а через 2 секунды удали через Debris.</p></details>
+      <details><summary>✅ Решение (функция для SimulatorServer)</summary>
+        <pre data-where="ServerScriptService > Script «SimulatorServer» (дополнение)"><code>local Debris = game:GetService("Debris")
+
+local function burst(position)
+	local holder = Instance.new("Part")
+	holder.Anchored = true
+	holder.CanCollide = false
+	holder.Transparency = 1
+	holder.Size = Vector3.one
+	holder.Position = position
+	holder.Parent = workspace
+
+	local emitter = Instance.new("ParticleEmitter")
+	emitter.Rate = 0
+	emitter.Speed = NumberRange.new(8, 14)
+	emitter.Lifetime = NumberRange.new(0.4, 0.8)
+	emitter.Color = ColorSequence.new(Color3.fromRGB(255, 210, 60))
+	emitter.Parent = holder
+	emitter:Emit(20)
+
+	Debris:AddItem(holder, 2)
+end
+
+-- в обработчике Touched перед orb:Destroy():
+-- burst(orb.Position)</code></pre>
+      </details>
+    </div>
+    <div class="task">
+      <h3>Задание 2 <span class="level mid">среднее</span></h3>
+      <p>Добавь улучшение «Автокликер» (<code>id = "AutoClicker"</code>, цена 1000). Если оно куплено, сервер раз в секунду начисляет игроку <code>ClickReward × Multiplier</code> монет. Учти, что Автокликер не должен влиять на множитель.</p>
+      <details><summary>💡 Подсказка</summary><p>Добавь в Config поле <code>multiplier = 1</code>: умножение на 1 не меняет множитель. Серверный цикл раз в секунду перебирает игроков и проверяет <code>table.find(data.owned, "AutoClicker")</code>.</p></details>
+      <details><summary>✅ Решение</summary>
+        <pre data-where="ReplicatedStorage > Shared > ModuleScript «Config» (добавить в Upgrades)"><code>{id = "AutoClicker", name = "Автокликер", price = 1000, multiplier = 1},</code></pre>
+        <pre data-where="ServerScriptService > Script «SimulatorServer» (дополнение)"><code>task.spawn(function()
+	while true do
+		task.wait(1)
+		for _, player in Players:GetPlayers() do
+			local data = DataService.get(player)
+			if data and table.find(data.owned, "AutoClicker") then
+				local multiplier = player:GetAttribute("Multiplier") or 1
+				DataService.addCoins(player, Config.ClickReward * multiplier)
+			end
+		end
+	end
+end)</code></pre>
+      </details>
+    </div>
+    <div class="task">
+      <h3>Задание 3 <span class="level hard">сложное</span></h3>
+      <p>Сделай <b>Перерождение (Rebirth)</b>: кнопка доступна от 50 000 монет. При перерождении монеты и улучшения сбрасываются, а счётчик <code>rebirths</code> (сохраняется, показывается в leaderstats) увеличивается. Каждое перерождение даёт постоянный бонус +50% к множителю.</p>
+      <details><summary>💡 Подсказка</summary>
+        <ul>
+          <li>Добавь в данные поле <code>rebirths = 0</code> (и при загрузке: <code>data.rebirths = saved.rebirths or 0</code>).</li>
+          <li>Новый RemoteFunction <code>Rebirth</code>. Все проверки на сервере.</li>
+          <li>В <code>calcMultiplier</code> умножь результат на <code>1 + 0.5 * data.rebirths</code>.</li>
+          <li>При сбросе улучшений не забудь убрать атрибуты <code>Owned_*</code>: <code>player:SetAttribute("Owned_" .. id, nil)</code>.</li>
+        </ul>
+      </details>
+      <details><summary>✅ Решение (серверная часть)</summary>
+        <pre data-where="ServerScriptService > Script «SimulatorServer» (дополнение)"><code>local REBIRTH_PRICE = 50000
+local rebirthRemote = remotes.Rebirth  -- создай RemoteFunction Rebirth
+
+-- calcMultiplier теперь учитывает перерождения:
+local function calcMultiplier(data)
+	local multiplier = 1
+	for _, id in data.owned do
+		local upgrade = Config.getUpgrade(id)
+		if upgrade then
+			multiplier *= upgrade.multiplier
+		end
+	end
+	return multiplier * (1 + 0.5 * (data.rebirths or 0))
+end
+
+rebirthRemote.OnServerInvoke = function(player)
+	local data = DataService.get(player)
+	if not data then return false, "Данные ещё загружаются" end
+	if data.coins &lt; REBIRTH_PRICE then
+		return false, `Нужно {REBIRTH_PRICE} монет`
+	end
+
+	for _, id in data.owned do
+		player:SetAttribute("Owned_" .. id, nil)
+	end
+	table.clear(data.owned)
+	DataService.addCoins(player, -data.coins)   -- обнулить монеты
+	data.rebirths = (data.rebirths or 0) + 1
+
+	local rebirthsValue = player.leaderstats:FindFirstChild("Rebirths")
+	if rebirthsValue then
+		rebirthsValue.Value = data.rebirths
+	end
+
+	refreshAttributes(player, data)
+	return true, `Перерождение #{data.rebirths}! Бонус x{1 + 0.5 * data.rebirths}`
+end</code></pre>
+        <p>В DataService добавь IntValue <code>Rebirths</code> в leaderstats и загрузку поля <code>rebirths</code>. Клиент: кнопка, которая вызывает <code>Rebirth:InvokeServer()</code> и показывает сообщение через <code>showMessage</code>.</p>
+      </details>
+    </div>
+  </section>
+</article>
+<script src="../js/course.js"></script>
+<script src="../js/app.js"></script>
+</body>
+</html>

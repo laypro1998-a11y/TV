@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Позиция и поворот: Vector3, CFrame, Color3</title>
+<link rel="stylesheet" href="../css/style.css">
+</head>
+<body data-lesson="vectors-cframe">
+<article class="lesson">
+  <h1>Позиция и поворот: Vector3, CFrame, Color3</h1>
+  <p class="lead">Чтобы двигать объекты, телепортировать игроков и строить карты кодом, нужно понимать, как Roblox описывает положение в 3D-мире.</p>
+
+  <div class="goals"><strong>🎯 После урока ты сможешь:</strong>
+    <ul>
+      <li>работать с координатами через <code>Vector3</code>;</li>
+      <li>двигать и поворачивать объекты через <code>CFrame</code>;</li>
+      <li>считать расстояния и направления;</li>
+      <li>задавать цвета через <code>Color3</code>.</li>
+    </ul>
+  </div>
+
+  <h2>Оси координат</h2>
+  <ul>
+    <li><b>X</b> — влево-вправо (красная стрелка в Studio);</li>
+    <li><b>Y</b> — вверх-вниз (зелёная). Y = 0 — примерно уровень Baseplate;</li>
+    <li><b>Z</b> — вперёд-назад (синяя).</li>
+  </ul>
+  <p>Единица длины в Roblox — <b>stud</b> («стад»). Персонаж ростом примерно 5 студов.</p>
+
+  <h2>Vector3 — точка или направление</h2>
+  <pre data-where="ServerScriptService > Script"><code>local pos = Vector3.new(10, 5, -3)
+print(pos.X, pos.Y, pos.Z)   --> 10 5 -3
+
+local part = workspace.Baseplate
+print(part.Position)          --> 0, -0.5, 0 (центр детали)
+print(part.Size)              --> 2048, 1, 2048 (размер тоже Vector3)</code></pre>
+
+  <h3>Математика векторов</h3>
+  <pre data-where="ServerScriptService > Script"><code>local a = Vector3.new(0, 0, 0)
+local b = Vector3.new(3, 0, 4)
+
+print(a + Vector3.new(0, 10, 0))  --> 0, 10, 0  (на 10 выше)
+print(b * 2)                      --> 6, 0, 8
+
+local distance = (b - a).Magnitude  -- длина вектора = расстояние
+print(distance)                   --> 5
+
+local direction = (b - a).Unit    -- направление длиной 1
+print(direction)                  --> 0.6, 0, 0.8</code></pre>
+  <div class="note tip"><p><code>(A - B).Magnitude</code> — <b>расстояние между точками</b>. Пригодится постоянно: «игрок рядом с сундуком?», «враг в радиусе атаки?».</p></div>
+
+  <h3>Пример: подняться над землёй</h3>
+  <pre data-where="ServerScriptService > Script"><code>local part = workspace:WaitForChild("Elevator")
+part.Anchored = true
+
+for i = 1, 100 do
+	part.Position += Vector3.new(0, 0.2, 0)  -- поднимаем по чуть-чуть
+	task.wait(0.03)
+end</code></pre>
+  <p>Есть и встроенные константы: <code>Vector3.zero</code>, <code>Vector3.one</code>, <code>Vector3.yAxis</code> (0, 1, 0).</p>
+
+  <h2>CFrame — позиция и поворот вместе</h2>
+  <p><b>CFrame</b> (Coordinate Frame) хранит, <b>где</b> объект и <b>куда</b> он повёрнут. У каждой детали есть свойство <code>CFrame</code>.</p>
+  <pre data-where="ServerScriptService > Script"><code>local part = workspace:WaitForChild("Block")
+
+-- Просто позиция (без поворота)
+part.CFrame = CFrame.new(0, 10, 0)
+
+-- Позиция + «смотреть на точку»
+part.CFrame = CFrame.lookAt(Vector3.new(0, 10, 0), Vector3.new(50, 10, 0))
+
+-- Поворот: углы задаются в радианах, math.rad переводит градусы
+part.CFrame = CFrame.new(0, 10, 0) * CFrame.Angles(0, math.rad(45), 0)</code></pre>
+
+  <h3>Умножение CFrame = «относительно себя»</h3>
+  <p>Умножение CFrame на CFrame применяет второй <b>относительно первого</b>. Так двигают объект «вперёд по его направлению», а не по оси мира:</p>
+  <pre data-where="ServerScriptService > Script"><code>local part = workspace:WaitForChild("Block")
+
+-- сдвинуть на 5 студов ВПЕРЁД относительно того, куда смотрит деталь
+part.CFrame = part.CFrame * CFrame.new(0, 0, -5)
+
+-- повернуть на 90° вокруг своей вертикальной оси
+part.CFrame = part.CFrame * CFrame.Angles(0, math.rad(90), 0)
+
+-- полезные направления детали
+print(part.CFrame.LookVector)   -- «вперёд»
+print(part.CFrame.RightVector)  -- «вправо»
+print(part.CFrame.UpVector)     -- «вверх»</code></pre>
+  <div class="note info"><p>Вперёд в Roblox — это <b>минус Z</b>. Поэтому <code>CFrame.new(0, 0, -5)</code> означает «на 5 вперёд».</p></div>
+
+  <h3>Position или CFrame?</h3>
+  <ul>
+    <li>Меняешь <code>Position</code>: деталь переместится, но если на этом месте что-то есть, Roblox может «вытолкнуть» её наверх.</li>
+    <li>Меняешь <code>CFrame</code>: деталь встанет точно туда, куда сказано, вместе с поворотом.</li>
+  </ul>
+  <p>Для телепортов и точной расстановки используй CFrame.</p>
+
+  <h3>Пример: телепорт игрока</h3>
+  <p>У персонажа есть главная деталь <b>HumanoidRootPart</b>. Чтобы телепортировать персонажа, двигай модель целиком через <code>PivotTo</code>:</p>
+  <pre data-where="ServerScriptService > Script"><code>local function teleport(character, position)
+	character:PivotTo(CFrame.new(position + Vector3.new(0, 3, 0)))
+end
+
+-- Используем позже, когда научимся получать игроков:
+-- teleport(player.Character, workspace.Lobby.Position)</code></pre>
+
+  <h2>Color3 — цвета</h2>
+  <p>У деталей два свойства цвета: <code>BrickColor</code> (готовая палитра по названиям) и <code>Color</code> (любой цвет через Color3). В новом коде чаще используют <code>Color</code>.</p>
+  <pre data-where="ServerScriptService > Script"><code>local part = workspace:WaitForChild("Block")
+
+part.Color = Color3.fromRGB(255, 85, 0)       -- RGB от 0 до 255
+part.Color = Color3.fromHex("#33CCFF")         -- из HEX, как в дизайне
+part.Color = Color3.fromHSV(0.5, 1, 1)         -- оттенок, насыщенность, яркость (0..1)
+
+-- Плавно смешать два цвета: 0 — первый, 1 — второй
+local red = Color3.fromRGB(255, 0, 0)
+local green = Color3.fromRGB(0, 255, 0)
+part.Color = red:Lerp(green, 0.5)              -- середина между ними</code></pre>
+
+  <h3>Радужная деталь</h3>
+  <pre data-where="Workspace > Part > Script"><code>local part = script.Parent
+local hue = 0
+
+while true do
+	hue = (hue + 0.01) % 1                  -- оттенок по кругу от 0 до 1
+	part.Color = Color3.fromHSV(hue, 1, 1)
+	task.wait(0.03)
+end</code></pre>
+
+  <h2>Другие полезные типы</h2>
+  <div class="table-wrap"><table>
+    <tr><th>Тип</th><th>Зачем</th><th>Пример</th></tr>
+    <tr><td><code>Vector2</code></td><td>Точка на экране (2D)</td><td><code>Vector2.new(100, 50)</code></td></tr>
+    <tr><td><code>UDim2</code></td><td>Размер и позиция интерфейса</td><td><code>UDim2.new(0.5, 0, 0, 40)</code></td></tr>
+    <tr><td><code>Enum</code></td><td>Готовые списки вариантов</td><td><code>Enum.Material.Neon</code>, <code>Enum.KeyCode.E</code></td></tr>
+  </table></div>
+
+  <section class="quiz">
+    <h2>🧠 Проверь себя</h2>
+    <div class="q" data-correct="1">
+      <p>Как узнать расстояние между точками <code>a</code> и <code>b</code>?</p>
+      <ol><li><code>a - b</code></li><li><code>(a - b).Magnitude</code></li><li><code>a:Distance(b)</code></li><li><code>(a + b) / 2</code></li></ol>
+      <p class="explain">Разность — это вектор от одной точки к другой, а Magnitude — его длина.</p>
+    </div>
+    <div class="q" data-correct="3">
+      <p>Что делает <code>part.CFrame * CFrame.new(0, 0, -10)</code>?</p>
+      <ol><li>Сдвигает деталь на 10 по оси Z мира</li><li>Поворачивает на 10°</li><li>Уменьшает деталь</li><li>Сдвигает деталь на 10 вперёд относительно её направления</li></ol>
+      <p class="explain">Умножение применяет сдвиг в локальных координатах детали. -Z — это «вперёд».</p>
+    </div>
+    <div class="q" data-correct="0">
+      <p>В чём задаются углы для <code>CFrame.Angles</code>?</p>
+      <ol><li>В радианах</li><li>В градусах</li><li>В студах</li><li>В процентах</li></ol>
+      <p class="explain">Градусы переводятся в радианы через <code>math.rad(градусы)</code>.</p>
+    </div>
+    <div class="q" data-correct="2">
+      <p>Как получить ярко-оранжевый цвет?</p>
+      <ol><li><code>Color3.new(255, 128, 0)</code></li><li><code>Color3.fromHSV(255, 128, 0)</code></li><li><code>Color3.fromRGB(255, 128, 0)</code></li><li><code>BrickColor.new(255, 128, 0)</code></li></ol>
+      <p class="explain"><code>Color3.new</code> принимает значения от 0 до 1, а <code>fromRGB</code> — от 0 до 255.</p>
+    </div>
+  </section>
+
+  <section class="tasks">
+    <h2>📚 Задания</h2>
+    <div class="task">
+      <h3>Задание 1 <span class="level easy">лёгкое</span></h3>
+      <p>Создай кодом 12 деталей по кругу радиусом 20 студов (как часы). Подсказка: X = cos(угол) × радиус, Z = sin(угол) × радиус.</p>
+      <details><summary>✅ Решение</summary>
+        <pre data-where="ServerScriptService > Script"><code>local RADIUS = 20
+local COUNT = 12
+
+for i = 1, COUNT do
+	local angle = (i / COUNT) * math.pi * 2
+	local part = Instance.new("Part")
+	part.Size = Vector3.new(2, 2, 2)
+	part.Anchored = true
+	part.Position = Vector3.new(math.cos(angle) * RADIUS, 3, math.sin(angle) * RADIUS)
+	part.Color = Color3.fromHSV(i / COUNT, 1, 1)
+	part.Parent = workspace
+end</code></pre>
+      </details>
+    </div>
+    <div class="task">
+      <h3>Задание 2 <span class="level mid">среднее</span></h3>
+      <p>Сделай «маятник»: деталь качается влево-вправо по оси X между −10 и 10 бесконечно. Используй <code>math.sin</code> и время <code>os.clock()</code>.</p>
+      <details><summary>✅ Решение</summary>
+        <pre data-where="Workspace > Part > Script"><code>local part = script.Parent
+part.Anchored = true
+local start = part.Position
+
+while true do
+	local offset = math.sin(os.clock() * 2) * 10
+	part.Position = start + Vector3.new(offset, 0, 0)
+	task.wait()
+end</code></pre>
+      </details>
+    </div>
+    <div class="task">
+      <h3>Задание 3 <span class="level hard">сложное</span></h3>
+      <p>Сделай «турель»: деталь <code>Turret</code>, которая каждый кадр поворачивается лицом к детали <code>Target</code>. Двигай Target во время Play (в режиме сервера), и турель должна следить за ней.</p>
+      <details><summary>✅ Решение</summary>
+        <pre data-where="ServerScriptService > Script"><code>local turret = workspace:WaitForChild("Turret")
+local target = workspace:WaitForChild("Target")
+
+while true do
+	turret.CFrame = CFrame.lookAt(turret.Position, target.Position)
+	task.wait()
+end</code></pre>
+        <p>Позже узнаешь способ лучше <code>while true</code>: событие <code>RunService.Heartbeat</code>.</p>
+      </details>
+    </div>
+  </section>
+</article>
+<script src="../js/course.js"></script>
+<script src="../js/app.js"></script>
+</body>
+</html>

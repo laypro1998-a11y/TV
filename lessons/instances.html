@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Объекты игры: Instance и иерархия</title>
+<link rel="stylesheet" href="../css/style.css">
+</head>
+<body data-lesson="instances">
+<article class="lesson">
+  <h1>Объекты игры: Instance и иерархия</h1>
+  <p class="lead">Всё, что есть в игре, — детали, скрипты, звуки, игроки, интерфейс — это объекты типа <b>Instance</b>. Научимся их находить, создавать, менять и удалять.</p>
+
+  <div class="goals"><strong>🎯 После урока ты сможешь:</strong>
+    <ul>
+      <li>понимать дерево объектов: Parent и Children;</li>
+      <li>правильно находить объекты: <code>.</code>, <code>FindFirstChild</code>, <code>WaitForChild</code>;</li>
+      <li>создавать, клонировать и удалять объекты;</li>
+      <li>использовать <code>script.Parent</code> и атрибуты.</li>
+    </ul>
+  </div>
+
+  <h2>Дерево объектов</h2>
+  <p>Explorer показывает дерево. У каждого объекта есть <b>родитель</b> (<code>Parent</code>) и могут быть <b>дети</b> (Children).</p>
+  <div class="explorer">
+    <div class="ex-title">Explorer</div>
+    <ul>
+      <li class="other">game <span class="cmt">— корень всего</span>
+        <ul><li class="svc">Workspace
+          <ul><li class="model">House
+            <ul><li class="part">Door</li><li class="part">Roof</li><li class="folder">Windows<ul><li class="part">Window1</li><li class="part">Window2</li></ul></li></ul>
+          </li></ul>
+        </li></ul>
+      </li>
+    </ul>
+  </div>
+  <p>Путь к окну: <code>game.Workspace.House.Windows.Window1</code>. Для Workspace есть короткое имя <code>workspace</code>, поэтому чаще пишут <code>workspace.House.Windows.Window1</code>.</p>
+  <pre data-where="ServerScriptService > Script"><code>local door = workspace.House.Door
+print(door.Name)          --> Door
+print(door.Parent.Name)   --> House
+print(door.ClassName)     --> Part
+print(door:GetFullName()) --> Workspace.House.Door</code></pre>
+
+  <h2>Три способа найти объект</h2>
+  <div class="table-wrap"><table>
+    <tr><th>Способ</th><th>Если объекта нет</th><th>Когда использовать</th></tr>
+    <tr><td><code>parent.Name</code></td><td>Ошибка, скрипт останавливается</td><td>Объект точно есть (серверный скрипт и объект, созданный в Studio)</td></tr>
+    <tr><td><code>parent:FindFirstChild("Name")</code></td><td>Возвращает <code>nil</code></td><td>Объекта может не быть, и это нормально. Проверяем через if</td></tr>
+    <tr><td><code>parent:WaitForChild("Name")</code></td><td>Ждёт, пока появится</td><td>Объект появится позже. <b>Почти всегда в LocalScript</b>, а также для объектов, создаваемых другими скриптами</td></tr>
+  </table></div>
+  <pre data-where="StarterPlayerScripts > LocalScript"><code>-- На клиенте объекты загружаются по сети, поэтому ждём их
+local house = workspace:WaitForChild("House")
+local door = house:WaitForChild("Door")
+
+-- Ищем то, чего может и не быть
+local key = house:FindFirstChild("Key")
+if key then
+	print("В доме лежит ключ!")
+end</code></pre>
+  <div class="note warn"><p>Если WaitForChild ждёт больше 5 секунд, в Output появится жёлтое <code>Infinite yield possible on ...</code>. Почти всегда это опечатка в имени или неправильный путь.</p></div>
+  <div class="note tip"><p>Почему точка иногда не работает? Если у объекта есть <b>свойство</b> с тем же именем, что и ребёнок, точка вернёт свойство. Например, деталь с именем <code>Size</code> внутри модели не найти через <code>model.Size</code>. Используй <code>FindFirstChild</code>, если имя совпадает со свойством или содержит пробелы.</p></div>
+
+  <h2>script.Parent — объект рядом со скриптом</h2>
+  <p>Внутри скрипта есть переменная <code>script</code> — сам скрипт. А <code>script.Parent</code> — тот, внутри кого он лежит. Так делают «самостоятельные» объекты: скрипт работает с тем, куда его положили.</p>
+  <div class="explorer">
+    <div class="ex-title">Explorer</div>
+    <ul><li class="svc">Workspace<ul><li class="part">SpinningPart<ul><li class="script"><span class="hl">Spin</span></li></ul></li></ul></li></ul>
+  </div>
+  <pre data-where="Workspace > SpinningPart > Script «Spin»"><code>local part = script.Parent  -- деталь, в которой лежит скрипт
+part.Anchored = true
+
+while true do
+	part.CFrame = part.CFrame * CFrame.Angles(0, math.rad(3), 0) -- поворот на 3°
+	task.wait()
+end</code></pre>
+  <p>Скопируй эту деталь вместе со скриптом 10 раз, и все 10 будут вращаться. Такие скрипты удобны для простых вещей, но в больших играх так плодить скрипты не стоит. В уроке про архитектуру покажем, как управлять сотней объектов одним скриптом.</p>
+
+  <h2>Создание объектов: Instance.new</h2>
+  <pre data-where="ServerScriptService > Script"><code>local part = Instance.new("Part")    -- создали, но он ещё «нигде»
+part.Name = "Platform"
+part.Size = Vector3.new(10, 1, 10)
+part.Position = Vector3.new(0, 10, 0)
+part.Anchored = true
+part.BrickColor = BrickColor.new("Cyan")
+part.Parent = workspace              -- теперь появился в мире</code></pre>
+  <div class="note tip"><p>Назначай <code>Parent</code> <b>последним</b>, после всех свойств. Объект появляется в мире один раз и уже настроенным. Так быстрее и без «мерцания».</p></div>
+  <p>Создавать можно что угодно: <code>"Part"</code>, <code>"Folder"</code>, <code>"Model"</code>, <code>"PointLight"</code>, <code>"Fire"</code>, <code>"Sound"</code>, <code>"IntValue"</code>...</p>
+  <pre data-where="ServerScriptService > Script"><code>local fire = Instance.new("Fire")
+fire.Size = 8
+fire.Parent = workspace.Platform  -- огонь на нашей платформе
+
+local light = Instance.new("PointLight")
+light.Range = 20
+light.Color = Color3.fromRGB(255, 150, 50)
+light.Parent = workspace.Platform</code></pre>
+
+  <h2>Clone и Destroy</h2>
+  <p>Обычно сложные объекты (оружие, мобов, сундуки) не создают кодом по деталям. Их собирают в Studio, кладут в <b>ServerStorage</b> как шаблон и <b>клонируют</b>:</p>
+  <div class="explorer">
+    <div class="ex-title">Explorer</div>
+    <ul><li class="svc">ServerStorage<ul><li class="model"><span class="hl">Chest</span> <span class="cmt">— шаблон сундука</span></li></ul></li>
+    <li class="svc">ServerScriptService<ul><li class="script">ChestSpawner</li></ul></li></ul>
+  </div>
+  <pre data-where="ServerScriptService > Script «ChestSpawner»"><code>local ServerStorage = game:GetService("ServerStorage")
+local chestTemplate = ServerStorage:WaitForChild("Chest")
+
+for i = 1, 5 do
+	local chest = chestTemplate:Clone()
+	chest:PivotTo(CFrame.new(i * 10, 3, 0))   -- переместить модель целиком
+	chest.Parent = workspace
+	task.wait(1)
+end
+
+task.wait(5)
+-- Удалить все сундуки с карты
+for _, obj in workspace:GetChildren() do
+	if obj.Name == "Chest" then
+		obj:Destroy()
+	end
+end</code></pre>
+  <p><code>Destroy()</code> удаляет объект и всех его детей навсегда. После Destroy с объектом больше ничего не сделать.</p>
+
+  <h2>IsA — проверка класса</h2>
+  <pre data-where="ServerScriptService > Script"><code>for _, obj in workspace:GetDescendants() do
+	if obj:IsA("BasePart") then  -- Part, MeshPart, WedgePart, ...
+		obj.Material = Enum.Material.Wood
+	end
+end</code></pre>
+  <p><code>IsA</code> учитывает «родство» классов: <code>IsA("BasePart")</code> вернёт true и для Part, и для MeshPart. Проверка <code>obj.ClassName == "Part"</code> строже.</p>
+
+  <h2>Атрибуты — свои свойства</h2>
+  <p>Хочешь дать двери свойство <code>IsLocked</code> или мечу <code>Damage</code>? Используй <b>атрибуты</b>. Их можно добавить в окне Properties (внизу, кнопка <b>Add Attribute</b>) или кодом:</p>
+  <pre data-where="ServerScriptService > Script"><code>local door = workspace.House.Door
+door:SetAttribute("IsLocked", true)
+door:SetAttribute("KeyColor", "Red")
+
+print(door:GetAttribute("IsLocked"))  --> true
+
+-- Реагировать на изменение атрибута
+door:GetAttributeChangedSignal("IsLocked"):Connect(function()
+	print("Замок теперь:", door:GetAttribute("IsLocked"))
+end)</code></pre>
+  <p>Атрибуты видны в Properties, реплицируются клиентам и удобны для настройки объектов без правки кода.</p>
+
+  <section class="quiz">
+    <h2>🧠 Проверь себя</h2>
+    <div class="q" data-correct="2">
+      <p>LocalScript падает с ошибкой <code>Door is not a valid member of Workspace</code>, хотя дверь есть. Как исправить?</p>
+      <ol><li>Переместить дверь в ServerStorage</li><li>Использовать FindFirstChild</li><li>Использовать workspace:WaitForChild("Door")</li><li>Переименовать дверь</li></ol>
+      <p class="explain">Клиенту дверь ещё не успела загрузиться. WaitForChild подождёт её.</p>
+    </div>
+    <div class="q" data-correct="0">
+      <p>Почему Parent лучше назначать последним?</p>
+      <ol><li>Объект появится в мире уже полностью настроенным</li><li>Иначе объект не создастся</li><li>Иначе будет ошибка</li><li>Так требует синтаксис Luau</li></ol>
+      <p class="explain">Работать будет и так, но назначать Parent последним быстрее и правильнее.</p>
+    </div>
+    <div class="q" data-correct="3">
+      <p>Где хранить шаблон моба, которого сервер будет клонировать?</p>
+      <ol><li>StarterGui</li><li>Workspace</li><li>StarterPlayerScripts</li><li>ServerStorage</li></ol>
+      <p class="explain">ServerStorage недоступен клиентам и не отображается в мире. Идеально для шаблонов.</p>
+    </div>
+    <div class="q" data-correct="1">
+      <p>Что такое <code>script.Parent</code>?</p>
+      <ol><li>Главный скрипт игры</li><li>Объект, внутри которого лежит этот скрипт</li><li>Сервис ServerScriptService</li><li>Игрок, запустивший скрипт</li></ol>
+      <p class="explain">script — сам скрипт, Parent — его родитель в дереве.</p>
+    </div>
+  </section>
+
+  <section class="tasks">
+    <h2>📚 Задания</h2>
+    <div class="task">
+      <h3>Задание 1 <span class="level easy">лёгкое</span></h3>
+      <p>Положи Script прямо в деталь в Workspace. Скрипт должен через <code>script.Parent</code> добавить в деталь огонь (<code>Fire</code>) и свет (<code>PointLight</code>).</p>
+      <details><summary>✅ Решение</summary>
+        <pre data-where="Workspace > Part > Script"><code>local part = script.Parent
+
+local fire = Instance.new("Fire")
+fire.Parent = part
+
+local light = Instance.new("PointLight")
+light.Brightness = 3
+light.Range = 16
+light.Parent = part</code></pre>
+      </details>
+    </div>
+    <div class="task">
+      <h3>Задание 2 <span class="level mid">среднее</span></h3>
+      <p>Собери в Studio простую модель «дерево» (ствол + крона), сгруппируй (<kbd>Ctrl</kbd>+<kbd>G</kbd>), назови <code>Tree</code> и положи в ServerStorage. Напиши скрипт, который сажает 20 деревьев в случайных точках от −100 до 100 по X и Z.</p>
+      <details><summary>💡 Подсказка</summary><p>У модели должна быть настроена опорная точка (Pivot). Перемещай её через <code>tree:PivotTo(CFrame.new(x, 0, z))</code>.</p></details>
+      <details><summary>✅ Решение</summary>
+        <pre data-where="ServerScriptService > Script «Forest»"><code>local ServerStorage = game:GetService("ServerStorage")
+local template = ServerStorage:WaitForChild("Tree")
+
+local forest = Instance.new("Folder")
+forest.Name = "Forest"
+forest.Parent = workspace
+
+for i = 1, 20 do
+	local tree = template:Clone()
+	local x = math.random(-100, 100)
+	local z = math.random(-100, 100)
+	tree:PivotTo(CFrame.new(x, 0, z))
+	tree.Parent = forest
+end</code></pre>
+      </details>
+    </div>
+    <div class="task">
+      <h3>Задание 3 <span class="level hard">сложное</span></h3>
+      <p>Сделай несколько дверей с атрибутом <code>IsLocked</code> (true или false) в папке <code>Doors</code>. Скрипт должен перебрать двери: запертые сделать красными и твёрдыми, открытые — зелёными, полупрозрачными и проходимыми. Бонус: обновляй вид двери, когда меняется её атрибут (проверь, поменяв атрибут во время Play в Properties на сервере).</p>
+      <details><summary>✅ Решение</summary>
+        <pre data-where="ServerScriptService > Script «Doors»"><code>local doors = workspace:WaitForChild("Doors")
+
+local function updateDoor(door)
+	local locked = door:GetAttribute("IsLocked")
+	if locked then
+		door.BrickColor = BrickColor.new("Really red")
+		door.Transparency = 0
+		door.CanCollide = true
+	else
+		door.BrickColor = BrickColor.new("Lime green")
+		door.Transparency = 0.6
+		door.CanCollide = false
+	end
+end
+
+for _, door in doors:GetChildren() do
+	updateDoor(door)
+	door:GetAttributeChangedSignal("IsLocked"):Connect(function()
+		updateDoor(door)
+	end)
+end</code></pre>
+      </details>
+    </div>
+  </section>
+</article>
+<script src="../js/course.js"></script>
+<script src="../js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,476 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Проект: PvP-оружие</title>
+<link rel="stylesheet" href="../css/style.css">
+</head>
+<body data-lesson="project-pvp">
+<article class="lesson">
+  <h1>Проект: PvP-оружие</h1>
+  <p class="lead">Делаем бластер для PvP: игрок целится мышью, сервер проверяет выстрел и считает попадание, все видят трассер, а за убийства начисляются очки. Главная задача проекта — сделать оружие, которое <b>нельзя взломать</b> простыми читами.</p>
+
+  <div class="goals"><strong>🎯 Что получится:</strong>
+    <ul>
+      <li>Tool с LocalScript внутри: прицеливание и отправка выстрела;</li>
+      <li>серверная проверка: кулдаун, дистанция, луч (raycast) от позиции, которую считает сервер;</li>
+      <li>урон, хедшоты, учёт убийств и смертей;</li>
+      <li>визуальные эффекты на клиентах: трассеры и хитмаркер.</li>
+    </ul>
+  </div>
+
+  <h2>Как разделена работа</h2>
+  <div class="table-wrap"><table>
+    <tr><th>Клиент (LocalScript)</th><th>Сервер (Script)</th></tr>
+    <tr><td>Узнаёт, куда смотрит курсор</td><td>Проверяет, что оружие в руках и кулдаун прошёл</td></tr>
+    <tr><td>Шлёт «стреляю в эту точку»</td><td>Сам считает точку вылета пули и пускает луч</td></tr>
+    <tr><td>Рисует трассеры и хитмаркер</td><td>Решает, есть ли попадание, наносит урон, считает убийства</td></tr>
+  </table></div>
+  <div class="note danger"><p>Чего клиент <b>не</b> присылает: кого он поразил, сколько урона, откуда летит пуля. Всё это читер подделал бы первым делом.</p></div>
+
+  <h2>Шаг 1. Структура</h2>
+  <div class="explorer">
+    <div class="ex-title">Explorer</div>
+    <ul>
+      <li class="svc">ReplicatedStorage
+        <ul>
+          <li class="folder">Shared<ul><li class="module">WeaponConfig</li></ul></li>
+          <li class="folder">Remotes
+            <ul>
+              <li class="remote">Fire <span class="cmt">RemoteEvent: клиент → сервер</span></li>
+              <li class="remote">ShotEffect <span class="cmt">RemoteEvent: сервер → все</span></li>
+              <li class="remote">HitMarker <span class="cmt">RemoteEvent: сервер → стрелок</span></li>
+            </ul>
+          </li>
+        </ul>
+      </li>
+      <li class="svc">ServerScriptService<ul><li class="script">CombatServer</li></ul></li>
+      <li class="svc">StarterPack
+        <ul><li class="tool">Blaster <span class="cmt">Tool</span>
+          <ul><li class="part">Handle <span class="cmt">Part 1×1×3, CanCollide = false</span></li><li class="local">BlasterClient</li></ul>
+        </li></ul>
+      </li>
+      <li class="svc">StarterPlayer<ul><li class="folder">StarterPlayerScripts<ul><li class="local">EffectsClient</li></ul></li></ul></li>
+    </ul>
+  </div>
+  <ul>
+    <li><b>Tool</b> в StarterPack копируется в рюкзак (Backpack) игрока при каждом появлении.</li>
+    <li>Деталь внутри Tool <b>обязательно</b> должна называться <code>Handle</code>: за неё персонаж держит оружие.</li>
+    <li><b>LocalScript внутри Tool</b> работает, потому что Tool лежит в Backpack игрока или в его персонаже. Это ещё одно законное место для LocalScript.</li>
+  </ul>
+
+  <h2>Шаг 2. Настройки оружия</h2>
+  <pre data-where="ReplicatedStorage > Shared > ModuleScript «WeaponConfig»"><code>local WeaponConfig = {}
+
+WeaponConfig.Blaster = {
+	damage = 20,
+	headshotMultiplier = 1.5,
+	cooldown = 0.35,       -- секунд между выстрелами
+	range = 300,           -- дальность в студах
+}
+
+return WeaponConfig</code></pre>
+
+  <h2>Шаг 3. Клиент: прицеливание и выстрел</h2>
+  <pre data-where="StarterPack > Blaster > LocalScript «BlasterClient»"><code>local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local UserInputService = game:GetService("UserInputService")
+
+local tool = script.Parent
+local player = Players.LocalPlayer
+local camera = workspace.CurrentCamera
+
+local config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("WeaponConfig")).Blaster
+local fireRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("Fire")
+
+local lastShot = 0
+
+-- Точка в мире под курсором (на телефоне — место касания)
+local function getAimPosition()
+	local screenPos = UserInputService:GetMouseLocation()
+	local ray = camera:ViewportPointToRay(screenPos.X, screenPos.Y)
+
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	params.FilterDescendantsInstances = {player.Character}  -- не целиться в себя
+
+	local result = workspace:Raycast(ray.Origin, ray.Direction * 1000, params)
+	if result then
+		return result.Position
+	end
+	return ray.Origin + ray.Direction * 1000
+end
+
+tool.Activated:Connect(function()
+	-- Клиентский кулдаун только для отзывчивости. Настоящий — на сервере
+	local now = os.clock()
+	if now - lastShot &lt; config.cooldown then return end
+	lastShot = now
+
+	fireRemote:FireServer(getAimPosition())
+end)</code></pre>
+  <div class="note info"><p>Клиент тоже проверяет кулдаун, чтобы не спамить сервер запросами. Но доверять этой проверке нельзя: читер её просто удалит. Поэтому сервер проверяет кулдаун ещё раз.</p></div>
+
+  <h2>Шаг 4. Сервер: проверка и урон</h2>
+  <pre data-where="ServerScriptService > Script «CombatServer»"><code>local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Debris = game:GetService("Debris")
+
+local config = require(ReplicatedStorage.Shared.WeaponConfig).Blaster
+local remotes = ReplicatedStorage.Remotes
+local fireRemote = remotes.Fire
+local shotEffect = remotes.ShotEffect
+local hitMarker = remotes.HitMarker
+
+local lastShot = {}  -- [player] = время последнего выстрела
+
+-- ===== Проверки =====
+local function isValidVector(v)
+	if typeof(v) ~= "Vector3" then return false end
+	-- NaN не равен сам себе; inf тоже отсекаем
+	for _, n in {v.X, v.Y, v.Z} do
+		if n ~= n or math.abs(n) == math.huge then
+			return false
+		end
+	end
+	return true
+end
+
+local function getEquippedBlaster(character)
+	local tool = character:FindFirstChild("Blaster")  -- экипированный Tool лежит в персонаже
+	if tool and tool:IsA("Tool") then
+		return tool
+	end
+	return nil
+end
+
+local function areTeammates(a, b)
+	return a.Team ~= nil and a.Team == b.Team and not a.Neutral
+end
+
+-- ===== Выстрел =====
+fireRemote.OnServerEvent:Connect(function(player, aimPosition)
+	-- 1. Данные от клиента правильного типа?
+	if not isValidVector(aimPosition) then return end
+
+	-- 2. Стрелок жив и держит оружие?
+	local character = player.Character
+	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+	if not humanoid or humanoid.Health &lt;= 0 then return end
+	local tool = getEquippedBlaster(character)
+	if not tool then return end
+	local handle = tool:FindFirstChild("Handle")
+	if not handle then return end
+
+	-- 3. Кулдаун (на сервере, с небольшим допуском на пинг)
+	local now = os.clock()
+	if lastShot[player] and now - lastShot[player] &lt; config.cooldown * 0.9 then return end
+	lastShot[player] = now
+
+	-- 4. Точку вылета считает СЕРВЕР, а не клиент
+	local origin = handle.Position
+	local direction = aimPosition - origin
+	if direction.Magnitude &lt; 0.1 then return end
+	direction = direction.Unit * config.range
+
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	params.FilterDescendantsInstances = {character}
+
+	local result = workspace:Raycast(origin, direction, params)
+	local hitPosition = if result then result.Position else origin + direction
+
+	-- 5. Эффект выстрела видят все
+	shotEffect:FireAllClients(origin, hitPosition)
+
+	if not result then return end
+
+	-- 6. Попали в персонажа?
+	local model = result.Instance:FindFirstAncestorOfClass("Model")
+	local targetHumanoid = model and model:FindFirstChildOfClass("Humanoid")
+	if not targetHumanoid or targetHumanoid.Health &lt;= 0 then return end
+
+	local targetPlayer = Players:GetPlayerFromCharacter(model)
+	if targetPlayer and areTeammates(player, targetPlayer) then return end
+
+	-- 7. Урон
+	local isHeadshot = result.Instance.Name == "Head"
+	local damage = config.damage * (if isHeadshot then config.headshotMultiplier else 1)
+
+	-- Метка «кто ударил последним», чтобы засчитать убийство
+	local oldTag = targetHumanoid:FindFirstChild("creator")
+	if oldTag then oldTag:Destroy() end
+	local tag = Instance.new("ObjectValue")
+	tag.Name = "creator"
+	tag.Value = player
+	tag.Parent = targetHumanoid
+	Debris:AddItem(tag, 5)
+
+	targetHumanoid:TakeDamage(damage)  -- учитывает ForceField после спавна
+	hitMarker:FireClient(player, isHeadshot)
+end)
+
+-- ===== Статистика: убийства и смерти =====
+local function onCharacterAdded(player, character)
+	local humanoid = character:WaitForChild("Humanoid")
+	humanoid.Died:Connect(function()
+		player.leaderstats.Deaths.Value += 1
+
+		local tag = humanoid:FindFirstChild("creator")
+		local killer = tag and tag.Value
+		if killer and killer ~= player and killer.Parent then
+			killer.leaderstats.Kills.Value += 1
+		end
+	end)
+end
+
+Players.PlayerAdded:Connect(function(player)
+	local leaderstats = Instance.new("Folder")
+	leaderstats.Name = "leaderstats"
+
+	local kills = Instance.new("IntValue")
+	kills.Name = "Kills"
+	kills.Parent = leaderstats
+
+	local deaths = Instance.new("IntValue")
+	deaths.Name = "Deaths"
+	deaths.Parent = leaderstats
+
+	leaderstats.Parent = player
+
+	player.CharacterAdded:Connect(function(character)
+		onCharacterAdded(player, character)
+	end)
+end)
+
+Players.PlayerRemoving:Connect(function(player)
+	lastShot[player] = nil
+end)</code></pre>
+
+  <h3>Разбор защиты</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Чит</th><th>Что его останавливает</th></tr>
+    <tr><td>Стрельба без оружия в руках</td><td>Проверка <code>getEquippedBlaster</code></td></tr>
+    <tr><td>Пулемёт: 100 выстрелов в секунду</td><td>Серверный кулдаун <code>lastShot</code></td></tr>
+    <tr><td>Стрельба через всю карту или сквозь стены</td><td>Луч пускает сервер из позиции оружия, с ограничением дальности. Стена его остановит</td></tr>
+    <tr><td>«Я попал в игрока X на 9999 урона»</td><td>Клиент не сообщает ни цель, ни урон, только точку прицела</td></tr>
+    <tr><td>Мусор в аргументах (строка, NaN, inf)</td><td><code>isValidVector</code>. Без проверки NaN мог бы сломать расчёты</td></tr>
+    <tr><td>Стрельба мёртвым персонажем</td><td>Проверка <code>humanoid.Health</code></td></tr>
+  </table></div>
+  <div class="note warn"><p>Что эта система <b>не</b> ловит: аимбот (читер идеально наводит курсор). От него защищаются статистикой: слишком высокий процент хедшотов, мгновенные повороты. Это уже продвинутая тема. Абсолютной защиты нет, но базовые проверки отсекают 95% читов.</p></div>
+
+  <h2>Шаг 5. Эффекты на клиентах</h2>
+  <p>Трассер рисует <b>каждый клиент у себя</b>: так сервер не тратит ресурсы на визуал, а эффект появляется плавно.</p>
+  <pre data-where="StarterPlayer > StarterPlayerScripts > LocalScript «EffectsClient»"><code>local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
+local Debris = game:GetService("Debris")
+
+local player = Players.LocalPlayer
+local remotes = ReplicatedStorage:WaitForChild("Remotes")
+local shotEffect = remotes:WaitForChild("ShotEffect")
+local hitMarker = remotes:WaitForChild("HitMarker")
+
+-- ===== Трассер =====
+local fadeInfo = TweenInfo.new(0.15)
+
+shotEffect.OnClientEvent:Connect(function(origin, hitPosition)
+	local distance = (hitPosition - origin).Magnitude
+	local beam = Instance.new("Part")
+	beam.Anchored = true
+	beam.CanCollide = false
+	beam.CanQuery = false       -- лучи не будут в него попадать
+	beam.Material = Enum.Material.Neon
+	beam.Color = Color3.fromRGB(255, 80, 80)
+	beam.Size = Vector3.new(0.15, 0.15, distance)
+	-- ставим посередине и поворачиваем от origin к цели
+	beam.CFrame = CFrame.lookAt(origin, hitPosition) * CFrame.new(0, 0, -distance / 2)
+	beam.Parent = workspace
+
+	TweenService:Create(beam, fadeInfo, {Transparency = 1}):Play()
+	Debris:AddItem(beam, 0.2)
+end)
+
+-- ===== Хитмаркер =====
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "HitMarkerGui"
+screenGui.ResetOnSpawn = false
+screenGui.Parent = player:WaitForChild("PlayerGui")
+
+local marker = Instance.new("TextLabel")
+marker.AnchorPoint = Vector2.new(0.5, 0.5)
+marker.Position = UDim2.fromScale(0.5, 0.5)
+marker.Size = UDim2.fromOffset(60, 60)
+marker.BackgroundTransparency = 1
+marker.Text = "✖"
+marker.TextScaled = true
+marker.TextTransparency = 1
+marker.Parent = screenGui
+
+hitMarker.OnClientEvent:Connect(function(isHeadshot)
+	marker.TextColor3 = if isHeadshot then Color3.fromRGB(255, 70, 70) else Color3.new(1, 1, 1)
+	marker.TextTransparency = 0
+	TweenService:Create(marker, TweenInfo.new(0.3), {TextTransparency = 1}):Play()
+end)</code></pre>
+  <p>Хитмаркер приходит от сервера <b>только при настоящем попадании</b>, поэтому игрок видит честный результат, а не догадку клиента.</p>
+
+  <h2>Шаг 6. Проверка</h2>
+  <ol>
+    <li>Test → Clients and Servers → 2 игрока.</li>
+    <li>У обоих в рюкзаке бластер. Возьми его в руку (<kbd>1</kbd>) и стреляй кликом.</li>
+    <li>Трассер видят оба игрока. При попадании появляется хитмаркер, у цели уменьшается здоровье.</li>
+    <li>Хедшот — красный хитмаркер и больше урона. После убийства в таблице +1 Kills и +1 Deaths.</li>
+    <li>Сразу после возрождения игрок под силовым полем (ForceField от SpawnLocation) и урона не получает.</li>
+    <li>Стреляй через стену: попадания нет.</li>
+  </ol>
+
+  <section class="quiz">
+    <h2>🧠 Проверь себя</h2>
+    <div class="q" data-correct="1">
+      <p>Почему точку вылета пули берёт сервер (<code>handle.Position</code>), а не клиент?</p>
+      <ol><li>Так быстрее</li><li>Иначе читер прислал бы точку вылета прямо рядом с целью или за стеной</li><li>Клиент не знает позицию оружия</li><li>Так требует Raycast</li></ol>
+      <p class="explain">Всё, что влияет на результат, сервер считает сам.</p>
+    </div>
+    <div class="q" data-correct="3">
+      <p>Почему трассеры рисует клиент, а не сервер?</p>
+      <ol><li>Сервер не умеет создавать детали</li><li>Клиент сам знает, кто попал</li><li>Так безопаснее</li><li>Визуальные эффекты дешевле и плавнее рисовать на клиентах, сервер только сообщает о выстреле</li></ol>
+      <p class="explain">Сервер занят логикой, клиенты рисуют.</p>
+    </div>
+    <div class="q" data-correct="0">
+      <p>Зачем на Humanoid жертвы вешается ObjectValue <code>creator</code>?</p>
+      <ol><li>Чтобы при смерти знать, кто нанёс последний удар, и засчитать убийство</li><li>Чтобы нанести урон</li><li>Для хитмаркера</li><li>Чтобы жертва не возродилась</li></ol>
+      <p class="explain">Это классическая схема Roblox для учёта убийств.</p>
+    </div>
+    <div class="q" data-correct="2">
+      <p>Почему LocalScript внутри Tool работает?</p>
+      <ol><li>Tool — особый скрипт</li><li>Его запускает сервер</li><li>Tool находится в Backpack или персонаже игрока, а это места, где LocalScript работает</li><li>Он не работает, нужен StarterPlayerScripts</li></ol>
+      <p class="explain">Backpack и персонаж принадлежат игроку.</p>
+    </div>
+  </section>
+
+  <section class="tasks">
+    <h2>📚 Задания: развиваем оружие</h2>
+    <div class="task">
+      <h3>Задание 1 <span class="level easy">лёгкое</span></h3>
+      <p>Добавь звук выстрела. Сервер ничего не должен знать о звуке: проигрывай его в EffectsClient при получении ShotEffect, в точке origin.</p>
+      <details><summary>✅ Решение (дополнение EffectsClient)</summary>
+        <pre data-where="StarterPlayerScripts > LocalScript «EffectsClient» (дополнение)"><code>local SHOT_SOUND_ID = "rbxassetid://ВАШ_ID"
+
+local function playShotSound(position)
+	local holder = Instance.new("Attachment")
+	holder.WorldPosition = position
+	holder.Parent = workspace.Terrain
+
+	local sound = Instance.new("Sound")
+	sound.SoundId = SHOT_SOUND_ID
+	sound.Volume = 0.6
+	sound.Parent = holder
+	sound:Play()
+	Debris:AddItem(holder, 2)
+end
+
+-- внутри shotEffect.OnClientEvent добавь:
+-- playShotSound(origin)</code></pre>
+      </details>
+    </div>
+    <div class="task">
+      <h3>Задание 2 <span class="level mid">среднее</span></h3>
+      <p>Сделай меч ближнего боя. Клиент при <code>Activated</code> просто шлёт <code>Swing</code> без аргументов. Сервер с кулдауном 0.6 с находит врагов в радиусе 6 студов <b>перед</b> персонажем и наносит 30 урона.</p>
+      <details><summary>💡 Подсказка</summary><p>Используй <code>workspace:GetPartBoundsInBox(cframe, size, params)</code>, где cframe = <code>root.CFrame * CFrame.new(0, 0, -3)</code>, size = <code>Vector3.new(5, 5, 6)</code>. Собери уникальные Humanoid из найденных деталей: один враг — один удар.</p></details>
+      <details><summary>✅ Решение (сервер)</summary>
+        <pre data-where="ServerScriptService > Script «SwordServer»"><code>local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local swing = ReplicatedStorage.Remotes.Swing
+
+local DAMAGE = 30
+local COOLDOWN = 0.6
+local lastSwing = {}
+
+swing.OnServerEvent:Connect(function(player)
+	local character = player.Character
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+	if not root or not humanoid or humanoid.Health &lt;= 0 then return end
+	if not character:FindFirstChild("Sword") then return end
+
+	local now = os.clock()
+	if lastSwing[player] and now - lastSwing[player] &lt; COOLDOWN then return end
+	lastSwing[player] = now
+
+	local params = OverlapParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	params.FilterDescendantsInstances = {character}
+
+	local parts = workspace:GetPartBoundsInBox(root.CFrame * CFrame.new(0, 0, -3), Vector3.new(5, 5, 6), params)
+	local alreadyHit = {}
+	for _, part in parts do
+		local model = part:FindFirstAncestorOfClass("Model")
+		local target = model and model:FindFirstChildOfClass("Humanoid")
+		if target and not alreadyHit[target] and target.Health > 0 then
+			alreadyHit[target] = true
+			target:TakeDamage(DAMAGE)
+		end
+	end
+end)
+
+Players.PlayerRemoving:Connect(function(player)
+	lastSwing[player] = nil
+end)</code></pre>
+        <p>Клиент: Tool <code>Sword</code> с Handle и LocalScript, который на <code>tool.Activated</code> вызывает <code>Swing:FireServer()</code> и проигрывает анимацию удара.</p>
+      </details>
+    </div>
+    <div class="task">
+      <h3>Задание 3 <span class="level hard">сложное</span></h3>
+      <p>Добавь патроны: 12 в обойме, перезарядка на <kbd>R</kbd> за 1.5 секунды. Количество патронов хранит <b>сервер</b> (атрибут <code>Ammo</code> на Tool, чтобы клиент мог показать его в интерфейсе). Во время перезарядки стрелять нельзя.</p>
+      <details><summary>💡 Подсказка</summary>
+        <ul>
+          <li>В WeaponConfig: <code>magazine = 12</code>, <code>reloadTime = 1.5</code>.</li>
+          <li>Новый RemoteEvent <code>Reload</code>. Сервер ставит атрибут <code>Reloading = true</code>, ждёт reloadTime, ставит Ammo = magazine.</li>
+          <li>В обработчике Fire: если <code>tool:GetAttribute("Reloading")</code> или Ammo &lt;= 0, выходим. Иначе Ammo -= 1.</li>
+          <li>Клиент показывает <code>Ammo</code> через <code>tool:GetAttributeChangedSignal("Ammo")</code>.</li>
+        </ul>
+      </details>
+      <details><summary>✅ Решение (серверная часть)</summary>
+        <pre data-where="ServerScriptService > Script «CombatServer» (дополнение)"><code>local reloadRemote = remotes.Reload
+
+-- при выдаче оружия (например, в CharacterAdded) выставь начальные патроны:
+-- tool:SetAttribute("Ammo", config.magazine)
+
+-- в fireRemote.OnServerEvent после получения tool, ДО кулдауна:
+-- if tool:GetAttribute("Reloading") then return end
+-- local ammo = tool:GetAttribute("Ammo") or 0
+-- if ammo &lt;= 0 then return end
+-- tool:SetAttribute("Ammo", ammo - 1)
+
+reloadRemote.OnServerEvent:Connect(function(player)
+	local character = player.Character
+	local tool = character and getEquippedBlaster(character)
+	if not tool or tool:GetAttribute("Reloading") then return end
+	if (tool:GetAttribute("Ammo") or 0) >= config.magazine then return end
+
+	tool:SetAttribute("Reloading", true)
+	task.wait(config.reloadTime)
+	if tool.Parent then
+		tool:SetAttribute("Ammo", config.magazine)
+		tool:SetAttribute("Reloading", false)
+	end
+end)</code></pre>
+        <p>Начальные патроны удобно задать прямо в Studio: атрибут <code>Ammo = 12</code> на Tool в StarterPack. Он скопируется вместе с инструментом.</p>
+      </details>
+    </div>
+  </section>
+
+  <h2>🎓 Ты прошёл курс!</h2>
+  <p>Теперь ты знаешь, как устроена игра на Roblox изнутри: язык Luau, объекты мира, события, клиент и сервер, Remote, модули, ООП, типы, сохранения и защита от читеров. Что дальше:</p>
+  <ul>
+    <li><b>Сделай свою игру.</b> Маленькую, но законченную. Лучшая практика — та, которую сам придумал.</li>
+    <li>Читай официальную документацию: <a href="https://create.roblox.com/docs" target="_blank" rel="noopener">create.roblox.com/docs</a>. Там есть справочник по каждому классу.</li>
+    <li>Изучай чужие открытые проекты и модули сообщества (ProfileStore, Promise, Signal).</li>
+    <li>Попробуй <b>Rojo</b>: он позволяет писать код в VS Code и хранить проект в Git.</li>
+  </ul>
+</article>
+<script src="../js/course.js"></script>
+<script src="../js/app.js"></script>
+</body>
+</html>
