@@ -2,42 +2,26 @@
 <html lang="ru">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Luau с нуля — курс скриптинга Roblox</title>
-<meta name="description" content="Бесплатный курс по Luau для Roblox: от первой строчки кода до клиент-серверной архитектуры, DataStore и собственных игровых систем.">
-<link rel="stylesheet" href="css/style.css">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#58cc02">
+<meta name="description" content="Учи Luau для Roblox по шагам: короткие уроки-слайды, упражнения, серии дней и опыт.">
+<title>Luau с нуля — учись делать игры в Roblox</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@600;700;800;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="app/app.css">
 </head>
-<body data-root="." data-page="home">
-<div class="page">
-  <section class="hero">
-    <h1>Luau для Roblox: с нуля до профи</h1>
-    <p>Учимся писать скрипты для своих игр. Не только переменные и циклы: разберём, как код управляет миром игры, чем LocalScript отличается от Script, зачем нужны модули и <b>куда именно вставлять каждый скрипт</b>, чтобы всё работало.</p>
-    <div class="btns">
-      <a class="btn" id="continue-btn" href="lessons/intro.html">Начать обучение →</a>
-      <a class="btn ghost" href="cheatsheet.html">📍 Шпаргалка: куда класть скрипты</a>
-    </div>
-  </section>
-
-  <div class="features">
-    <div class="feature"><b>📍 Место для каждого кода</b><span>У каждого примера подписано, в какой сервис и какой тип скрипта его вставлять.</span></div>
-    <div class="feature"><b>🧠 Тесты</b><span>Короткий тест после урока. Ответишь на всё правильно, и урок засчитается.</span></div>
-    <div class="feature"><b>📚 Задания</b><span>Практика в Roblox Studio с подсказками и спрятанными решениями.</span></div>
-    <div class="feature"><b>🎮 Проекты</b><span>Симулятор с магазином и сохранениями, PvP-оружие с защитой от читеров.</span></div>
-  </div>
-
-  <h2>Как проходить курс</h2>
-  <ol>
-    <li>Установи <a href="https://create.roblox.com/" target="_blank" rel="noopener">Roblox Studio</a> (бесплатно) и держи его открытым рядом с сайтом.</li>
-    <li>Читай урок и <b>сам перепечатывай примеры</b> в Studio. Копировать можно, но руками запоминается лучше.</li>
-    <li>Запускай игру (<kbd>F5</kbd> или кнопка Play) и смотри в окно <b>Output</b>.</li>
-    <li>Пройди тест, потом сделай задания. В решение заглядывай, только когда сам попробовал.</li>
-  </ol>
-  <p>Прогресс хранится в этом браузере, на другом устройстве его не будет.</p>
-
-  <h2>Программа курса</h2>
-  <div id="course-map"></div>
-</div>
-<script src="js/course.js"></script>
-<script src="js/app.js"></script>
+<body>
+<div id="app"></div>
+<noscript><p style="padding:20px">Для уроков нужен JavaScript. Можно открыть <a href="course.html">текстовый курс</a>.</p></noscript>
+<script src="js/highlight.js"></script>
+<script src="app/content/helpers.js"></script>
+<script src="app/content/1-start.js"></script>
+<script src="app/content/2-basics.js"></script>
+<script src="app/content/3-world.js"></script>
+<script src="app/content/4-client-server.js"></script>
+<script src="app/content/5-pro.js"></script>
+<script src="app/content/6-projects.js"></script>
+<script src="app/app.js"></script>
 </body>
 </html>
