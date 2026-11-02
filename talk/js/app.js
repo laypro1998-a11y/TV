@@ -22,6 +22,10 @@
     videoKind: null,
   };
   if (!S.prefs.vol || typeof S.prefs.vol !== 'object') S.prefs.vol = {};
+  // адреса старого сервера PeerJS больше не нужны
+  S.rooms.forEach((r) => {
+    if (r.server && !/^wss?:\/\//i.test(r.server)) r.server = '';
+  });
   BT.soundsOn = !!S.prefs.sounds;
 
   const savePrefs = () => store.set('prefs', S.prefs);
@@ -257,7 +261,7 @@
   function validServer(u) {
     try {
       const x = new URL(u);
-      return x.protocol === 'https:' || x.protocol === 'http:';
+      return x.protocol === 'wss:' || x.protocol === 'ws:';
     } catch (e) {
       return false;
     }
@@ -302,9 +306,9 @@
         <label class="field"><span>Название</span><input id="crName" maxlength="40" value="Наша комната" placeholder="Например, Мы с Сашей"></label>
         <details class="advanced">
           <summary>Дополнительно</summary>
-          <label class="field"><span>Свой сервер связи PeerJS (необязательно)</span>
-          <input id="crServer" placeholder="https://my-peer-server.example.com/" inputmode="url"></label>
-          <p class="hint">По умолчанию используется бесплатный сервер 0.peerjs.com. Адрес попадёт в ссылку-приглашение, так что у друга будет тот же.</p>
+          <label class="field"><span>Свой MQTT-брокер (необязательно)</span>
+          <input id="crServer" placeholder="wss://my-broker.example.com:8084/mqtt" inputmode="url"></label>
+          <p class="hint">По умолчанию друзья находят друг друга через несколько бесплатных публичных MQTT-брокеров. Адрес своего брокера попадёт в ссылку-приглашение, так что у друга будет тот же.</p>
         </details>`,
       actions: [
         { label: 'Отмена', kind: 'ghost' },
@@ -518,7 +522,7 @@
         <label class="check"><input type="checkbox" id="stSounds"${S.prefs.sounds ? ' checked' : ''}> Звуки: новые сообщения, вход и выход из голосового</label>
         <details class="advanced">
           <summary>Как это работает</summary>
-          <p class="hint">Болталка не хранит ничего на сервере. Звук, видео и сообщения идут напрямую между браузерами (WebRTC). Сервер связи PeerJS только помогает вам найти друг друга. Если напрямую не выходит, звук идёт через TURN-сервер PeerJS.</p>
+          <p class="hint">Болталка не хранит ничего на сервере. Звук, видео и сообщения идут напрямую между браузерами (WebRTC). Публичные MQTT-брокеры только помогают вам найти друг друга, и эти служебные сообщения зашифрованы кодом комнаты. Если напрямую не выходит, звук идёт через публичный TURN-сервер.</p>
           <p class="hint">История чата хранится в браузере у каждого участника. Если отправить сообщение, когда в комнате никого нет, оно уйдёт другу, когда вы оба окажетесь онлайн.</p>
           <p class="hint">Горячие клавиши: <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>M</kbd> — микрофон, <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>D</kbd> — звук.</p>
         </details>
@@ -1212,7 +1216,7 @@
     if (!window.isSecureContext) {
       html = 'Открой Болталку по адресу с <b>https://</b> — иначе браузер не даст микрофон.';
     } else if (S.room && S.room.status === 'offline') {
-      html = 'Нет связи с сервером связи. Проверь интернет — мы пробуем подключиться снова…';
+      html = 'Не получается подключиться к серверам знакомств. Проверь интернет — мы пробуем снова…';
     } else if (S.room && S.room.status === 'full') {
       html = `В комнате уже ${BT.MAX_SLOTS} участников — это максимум. Пробуем снова…`;
     } else if (!window.RTCPeerConnection) {
@@ -1669,7 +1673,6 @@
   async function boot() {
     initComposer();
     initGlobalEvents();
-    if (!window.Peer) toast('Не загрузилась библиотека связи. Обнови страницу.', 'error');
     const invite = takeInviteFromHash();
     if (!S.profile || !S.profile.uid || !S.profile.name) {
       renderAll();

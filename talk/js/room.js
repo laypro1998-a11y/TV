@@ -1,22 +1,30 @@
 /* Болталка — сеть.
  *
  * Как это работает:
- *  • Комната = случайный код. Каждый участник занимает «место» в комнате —
- *    Peer ID вида boltalka-<код>-<номер> на сигнальном сервере PeerJS
- *    (по умолчанию бесплатный 0.peerjs.com).
- *  • Вошедший пробует места 0,1,2… и стучится ко всем остальным местам —
- *    так участники находят друг друга без своего сервера.
- *  • Между каждой парой — DataConnection (чат, статусы, синхронизация истории
- *    и служебные сообщения) и отдельный RTCPeerConnection для звука и видео,
- *    который договаривается через этот же канал. Дорожки (микрофон, камера,
- *    экран) подменяются через replaceTrack — без пересогласования.
+ *  • Комната = случайный код. Чтобы найти друг друга, участники обмениваются
+ *    короткими служебными сообщениями через публичные MQTT-брокеры (сразу
+ *    через несколько — если один недоступен, работают остальные). Сообщения
+ *    шифруются AES-GCM ключом из кода комнаты, а тема (topic) — хеш кода,
+ *    так что посторонние их не прочитают.
+ *  • Между каждой парой участников — один RTCPeerConnection: канал данных
+ *    (чат, статусы, синхронизация истории) плюс звук и видео. Предлагает
+ *    соединение участник с меньшим id — так не бывает столкновений.
+ *  • Микрофон, камера и экран подменяются через replaceTrack, без
+ *    пересогласования.
  */
 (function () {
   'use strict';
 
   const BT = (window.BT = window.BT || {});
 
-  // STUN + публичный TURN проекта PeerJS (те же, что PeerJS использует по умолчанию).
+  // Публичные бесплатные MQTT-брокеры (MQTT поверх WebSocket).
+  const BROKERS = [
+    'wss://broker.emqx.io:8084/mqtt',
+    'wss://broker.hivemq.com:8884/mqtt',
+    'wss://test.mosquitto.org:8081/mqtt',
+  ];
+
+  // STUN + публичный TURN PeerJS (TURN нужен, если напрямую соединиться нельзя).
   // Свой TURN можно добавить сюда.
   const ICE_SERVERS = [
     { urls: ['stun:stun.l.google.com:19302', 'stun:stun.cloudflare.com:3478'] },
@@ -27,28 +35,25 @@
     },
   ];
 
-  const PREFIX = 'boltalka';
-  const MAX_SLOTS = 6; // максимум участников в комнате
-  const TICK_MS = 3000; // пинг и служебный цикл
-  const DEAD_MS = 12000; // нет вестей столько — считаем, что связь пропала
-  const CONNECT_TIMEOUT = 9000;
-  const HELLO_TIMEOUT = 8000; // соединились, но так и не поздоровались — пробуем заново
-  const HISTORY_SYNC = 300; // сколько последних сообщений отдаём при встрече
+  const MAX_PEERS = 6; // участников в комнате, включая тебя
+  const TICK_MS = 3000;
+  const DEAD_MS = 12000; // нет вестей столько — связь пропала
+  const CONNECT_TIMEOUT = 20000; // соединение так и не открылось
+  const HISTORY_SYNC = 300;
   const HIST_CHUNK = 30;
   const MAX_STORE = 1000;
   const MAX_TEXT = 2000;
 
   const str = (s, max) => (typeof s === 'string' ? s.slice(0, max) : '');
+  const enc = new TextEncoder();
+  const dec = new TextDecoder();
+  const randId = () => Array.from(crypto.getRandomValues(new Uint8Array(8)), (b) => b.toString(16).padStart(2, '0')).join('');
 
   function cleanUser(u) {
     if (!u || typeof u !== 'object') return null;
     const uid = str(u.uid, 64);
     if (!uid) return null;
-    return {
-      uid,
-      name: str(u.name, 32).trim() || 'Без имени',
-      color: BT.isColor(u.color) ? u.color : BT.colorFor(uid),
-    };
+    return { uid, name: str(u.name, 32).trim() || 'Без имени', color: BT.isColor(u.color) ? u.color : BT.colorFor(uid) };
   }
 
   function cleanState(s) {
@@ -80,40 +85,194 @@
 
   const wire = (m) => ({ id: m.id, uid: m.uid, name: m.name, color: m.color, text: m.text, ts: m.ts });
 
-  function peerOptions(server) {
-    const opts = { debug: 0, pingInterval: 5000, config: { iceServers: ICE_SERVERS } };
-    if (server) {
-      const u = new URL(server);
-      opts.secure = u.protocol === 'https:';
-      opts.host = u.hostname;
-      opts.port = Number(u.port) || (opts.secure ? 443 : 80);
-      opts.path = u.pathname || '/';
-      opts.key = u.searchParams.get('key') || 'peerjs';
-    }
-    return opts;
+  /* =====================================================================
+   * Крошечный MQTT 3.1.1 клиент поверх WebSocket (QoS 0, одна тема)
+   * ===================================================================== */
+  function mqttStr(s) {
+    const b = enc.encode(s);
+    return [b.length >> 8, b.length & 255, ...b];
+  }
+  function mqttPacket(type, body) {
+    const len = [];
+    let n = body.length;
+    do {
+      let d = n % 128;
+      n = Math.floor(n / 128);
+      if (n > 0) d |= 128;
+      len.push(d);
+    } while (n > 0);
+    const out = new Uint8Array(1 + len.length + body.length);
+    out[0] = type;
+    out.set(len, 1);
+    out.set(body, 1 + len.length);
+    return out;
   }
 
+  class Broker {
+    constructor(url, topic, onMessage, onState) {
+      this.url = url;
+      this.topic = topic;
+      this.onMessage = onMessage;
+      this.onState = onState;
+      this.ready = false;
+      this.closed = false;
+      this.delay = 2000;
+      this.buf = new Uint8Array(0);
+    }
+
+    connect() {
+      if (this.closed) return;
+      let ws;
+      try {
+        ws = new WebSocket(this.url, ['mqtt']);
+      } catch (e) {
+        this.retry();
+        return;
+      }
+      this.ws = ws;
+      ws.binaryType = 'arraybuffer';
+      this.buf = new Uint8Array(0);
+      ws.onopen = () => {
+        const clientId = 'bt' + randId();
+        // CONNECT: «MQTT», уровень 4, clean session, keepalive 40 с
+        ws.send(mqttPacket(0x10, [...mqttStr('MQTT'), 4, 0x02, 0, 40, ...mqttStr(clientId)]));
+      };
+      ws.onmessage = (e) => this.feed(new Uint8Array(e.data));
+      ws.onclose = () => {
+        if (this.ws !== ws) return;
+        this.ws = null;
+        clearInterval(this.pinger);
+        if (this.ready) {
+          this.ready = false;
+          this.onState(this);
+        }
+        this.retry();
+      };
+      ws.onerror = () => {};
+    }
+
+    retry() {
+      if (this.closed) return;
+      clearTimeout(this.retryTimer);
+      this.retryTimer = setTimeout(() => this.connect(), this.delay);
+      this.delay = Math.min(30000, this.delay * 2);
+    }
+
+    /** Переподключиться сейчас, если связи нет. */
+    wake() {
+      if (this.closed || this.ws) return;
+      clearTimeout(this.retryTimer);
+      this.delay = 2000;
+      this.connect();
+    }
+
+    feed(chunk) {
+      const merged = new Uint8Array(this.buf.length + chunk.length);
+      merged.set(this.buf);
+      merged.set(chunk, this.buf.length);
+      let b = merged;
+      for (;;) {
+        if (b.length < 2) break;
+        let len = 0;
+        let mult = 1;
+        let i = 1;
+        let complete = false;
+        for (; i < 5 && i < b.length; i++) {
+          len += (b[i] & 127) * mult;
+          mult *= 128;
+          if (!(b[i] & 128)) {
+            complete = true;
+            break;
+          }
+        }
+        if (!complete) break;
+        const start = i + 1;
+        if (b.length < start + len) break;
+        this.handle(b[0], b.subarray(start, start + len));
+        b = b.subarray(start + len);
+      }
+      this.buf = b.slice();
+    }
+
+    handle(first, body) {
+      const type = first >> 4;
+      if (type === 2) {
+        // CONNACK
+        if (body[1] !== 0) {
+          if (this.ws) this.ws.close();
+          return;
+        }
+        // SUBSCRIBE на нашу тему, QoS 0
+        this.ws.send(mqttPacket(0x82, [0, 1, ...mqttStr(this.topic), 0]));
+      } else if (type === 9) {
+        // SUBACK
+        this.delay = 2000;
+        this.ready = true;
+        clearInterval(this.pinger);
+        this.pinger = setInterval(() => {
+          if (this.ws && this.ws.readyState === 1) this.ws.send(new Uint8Array([0xc0, 0]));
+        }, 25000);
+        this.onState(this);
+      } else if (type === 3) {
+        // PUBLISH
+        const qos = (first >> 1) & 3;
+        const tlen = (body[0] << 8) | body[1];
+        let p = 2 + tlen;
+        if (qos > 0) p += 2;
+        this.onMessage(body.slice(p));
+      }
+    }
+
+    publish(bytes) {
+      if (!this.ready || !this.ws || this.ws.readyState !== 1) return;
+      const head = mqttStr(this.topic);
+      const body = new Uint8Array(head.length + bytes.length);
+      body.set(head);
+      body.set(bytes, head.length);
+      try {
+        this.ws.send(mqttPacket(0x30, body));
+      } catch (e) {}
+    }
+
+    close() {
+      if (this.closed) return;
+      this.closed = true;
+      this.ready = false;
+      clearTimeout(this.retryTimer);
+      clearInterval(this.pinger);
+      const ws = this.ws;
+      this.ws = null;
+      if (ws) {
+        try {
+          if (ws.readyState === 1) ws.send(new Uint8Array([0xe0, 0])); // DISCONNECT
+          ws.close();
+        } catch (e) {}
+      }
+    }
+  }
+
+  /* =====================================================================
+   * Комната
+   * ===================================================================== */
   class Room {
     constructor({ code, server, me, messages }) {
       this.code = code;
-      this.server = server || '';
+      this.server = /^wss?:\/\//i.test(server || '') ? server : '';
       this.me = me;
       this.local = cleanState({});
       this.tracks = { audio: null, video: null };
       this.links = new Map(); // id собеседника → связь
-      this.pending = new Map(); // id → { conn, at } — исходящие попытки
       this.messages = (messages || []).slice(-MAX_STORE);
       this.msgIds = new Set(this.messages.map((m) => m.id));
       this.handlers = {};
       this.status = 'idle';
-      this.peer = null;
-      this.slot = -1;
       this.stopped = true;
-      this.timer = null;
-      this.lastProbe = 0;
-      this.probeRound = 0;
+      this.brokers = [];
+      this.seen = new Set();
+      this.sendChain = Promise.resolve();
+      this.recvChain = Promise.resolve();
+      this.lastAnnounce = 0;
       this.lastChange = Date.now();
-      this.reconnectDelay = 1000;
     }
 
     /* ---------- события ---------- */
@@ -136,232 +295,290 @@
       this.emit('status', { status, detail });
     }
 
-    peerId(slot) {
-      return `${PREFIX}-${this.code}-${slot}`;
-    }
-    slotOf(id) {
-      const m = /-(\d+)$/.exec(id);
-      return m ? Number(m[1]) : -1;
-    }
-    isOurs(id) {
-      return typeof id === 'string' && id.startsWith(`${PREFIX}-${this.code}-`);
-    }
-
     /* ---------- вход в комнату ---------- */
     async start() {
-      if (!window.Peer) {
-        this.setStatus('offline', 'Не загрузилась библиотека PeerJS');
+      if (!window.RTCPeerConnection || !window.WebSocket || !(window.crypto && crypto.subtle)) {
+        this.setStatus('offline', 'Браузер не поддерживает WebRTC или шифрование (нужен https)');
         return;
       }
       this.stopped = false;
-      let attempt = 0;
-      while (!this.stopped && !this.peer) {
-        this.setStatus('connecting');
-        try {
-          await this.claimSlot();
-        } catch (err) {
-          if (this.stopped) return;
-          const full = err && err.type === 'full';
-          this.setStatus(full ? 'full' : 'offline', err && (err.message || err.type));
-          await BT.sleep(Math.min(30000, 2000 * 2 ** attempt++));
-        }
-      }
-    }
-
-    async claimSlot() {
-      for (let slot = 0; slot < MAX_SLOTS; slot++) {
-        if (this.stopped) return;
-        const peer = await this.openPeer(slot);
-        if (!peer) continue; // место занято — пробуем следующее
-        if (this.stopped) {
-          peer.destroy();
-          return;
-        }
-        this.attachPeer(peer, slot);
-        return;
-      }
-      throw Object.assign(new Error('В комнате уже максимум участников'), { type: 'full' });
-    }
-
-    openPeer(slot) {
-      return new Promise((resolve, reject) => {
-        let peer;
-        try {
-          peer = new window.Peer(this.peerId(slot), peerOptions(this.server));
-        } catch (e) {
-          reject(e);
-          return;
-        }
-        const done = () => {
-          clearTimeout(timer);
-          peer.off('open', onOpen);
-          peer.off('error', onError);
-        };
-        const onOpen = () => {
-          done();
-          resolve(peer);
-        };
-        const onError = (err) => {
-          done();
-          peer.destroy();
-          if (err && err.type === 'unavailable-id') resolve(null);
-          else reject(err);
-        };
-        const timer = setTimeout(() => onError({ type: 'network', message: 'Сервер связи не отвечает' }), 15000);
-        peer.on('open', onOpen);
-        peer.on('error', onError);
-      });
-    }
-
-    attachPeer(peer, slot) {
-      this.peer = peer;
-      this.slot = slot;
-      this.lastChange = Date.now();
-      this.reconnectDelay = 1000;
-      this.setStatus('online');
-      peer.on('connection', (conn) => {
-        if (this.peer !== peer) return;
-        if (!this.isOurs(conn.peer)) {
-          conn.close();
-          return;
-        }
-        this.wireConn(conn, false);
-      });
-      peer.on('open', () => {
-        // после переподключения к сигнальному серверу
-        if (this.peer !== peer) return;
-        this.reconnectDelay = 1000;
-        this.setStatus('online');
-        this.scan(true);
-      });
-      peer.on('disconnected', () => this.onSignalLost(peer));
-      peer.on('error', (err) => this.onPeerError(peer, err));
+      this.id = randId(); // id этой вкладки в комнате
+      this.startedAt = Date.now();
+      this.setStatus('connecting');
+      const h = async (s) => new Uint8Array(await crypto.subtle.digest('SHA-256', enc.encode(s)));
+      const hex = (b) => Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('');
+      this.topic = 'boltalka/v2/' + hex(await h('boltalka-topic:' + this.code)).slice(0, 32);
+      this.key = await crypto.subtle.importKey('raw', await h('boltalka-key:' + this.code), 'AES-GCM', false, ['encrypt', 'decrypt']);
+      if (this.stopped) return;
+      const urls = this.server ? [this.server] : BROKERS;
+      this.brokers = urls.map(
+        (u) =>
+          new Broker(
+            u,
+            this.topic,
+            (bytes) => this.onSignalBytes(bytes),
+            (b) => this.onBrokerState(b)
+          )
+      );
+      this.brokers.forEach((b) => b.connect());
       clearInterval(this.timer);
       this.timer = setInterval(() => this.tick(), TICK_MS);
-      this.scan(true);
     }
 
-    onSignalLost(peer) {
-      if (this.peer !== peer || this.stopped || peer.destroyed) return;
-      this.setStatus('reconnecting');
-      clearTimeout(this.reconnectTimer);
-      this.reconnectTimer = setTimeout(() => {
-        if (this.peer !== peer || this.stopped || peer.destroyed) return;
-        if (peer.disconnected) peer.reconnect();
-      }, this.reconnectDelay);
-      this.reconnectDelay = Math.min(30000, this.reconnectDelay * 2);
-    }
-
-    onPeerError(peer, err) {
-      if (this.peer !== peer) return;
-      const type = err && err.type;
-      if (type === 'peer-unavailable') {
-        const m = /peer (\S+)/.exec(String(err.message || ''));
-        if (m) this.dropPending(m[1]);
-        return;
-      }
-      if (type === 'unavailable-id') {
-        // наше место заняли, пока мы были без связи — входим заново
-        this.restart();
-        return;
-      }
-      if (peer.destroyed) this.restart();
-    }
-
-    restart() {
+    onBrokerState(broker) {
       if (this.stopped) return;
-      this.teardown();
-      this.start();
-    }
-
-    teardown() {
-      clearInterval(this.timer);
-      clearTimeout(this.reconnectTimer);
-      this.timer = null;
-      for (const link of [...this.links.values()]) this.dropLink(link, true);
-      for (const p of this.pending.values()) {
-        try {
-          p.conn.close();
-        } catch (e) {}
+      if (broker.ready) {
+        this.setStatus('online');
+        this.announce(); // новые знакомые могут быть на этом брокере
+      } else if (!this.brokers.some((b) => b.ready)) {
+        this.setStatus('reconnecting');
       }
-      this.pending.clear();
-      const peer = this.peer;
-      this.peer = null;
-      this.slot = -1;
-      if (peer) peer.destroy();
-      this.emit('peers');
     }
 
     stop() {
+      if (!this.stopped && this.key) this.signal({ t: 'bye' });
       this.stopped = true;
-      this.teardown();
+      clearInterval(this.timer);
+      for (const link of [...this.links.values()]) this.dropLink(link, true);
+      // даём «bye» уйти, потом закрываем брокеров
+      const brokers = this.brokers;
+      this.brokers = [];
+      const closeAll = () => brokers.forEach((b) => b.close());
+      this.sendChain.then(closeAll);
+      setTimeout(closeAll, 300);
+      this.emit('peers');
       this.setStatus('idle');
     }
 
-    /** Постучаться к другим местам: всем (all) или только к младшим. */
-    scan(all) {
-      const peer = this.peer;
-      if (!peer || peer.disconnected || peer.destroyed) return;
-      this.lastProbe = Date.now();
-      for (let s = 0; s < MAX_SLOTS; s++) {
-        if (s === this.slot || (!all && s > this.slot)) continue;
-        const id = this.peerId(s);
-        if (this.links.has(id) || this.pending.has(id)) continue;
-        let conn;
-        try {
-          conn = peer.connect(id, { reliable: true });
-        } catch (e) {
-          conn = null;
-        }
-        if (!conn) continue;
-        this.pending.set(id, { conn, at: Date.now() });
-        this.wireConn(conn, true);
-      }
-    }
-
-    /** Разбудить поиск друзей (вкладку открыли, сеть вернулась). */
+    /** Разбудить (вкладку открыли, сеть вернулась). */
     kick() {
       if (this.stopped) return;
-      if (this.peer && this.peer.disconnected && !this.peer.destroyed) {
-        clearTimeout(this.reconnectTimer);
-        this.reconnectDelay = 1000;
-        this.peer.reconnect();
-        return;
+      this.brokers.forEach((b) => b.wake());
+      this.announce();
+    }
+
+    /* ---------- служебные сообщения через брокеров ---------- */
+    signal(obj) {
+      obj.from = this.id;
+      obj.m = randId();
+      const brokers = this.brokers;
+      this.sendChain = this.sendChain
+        .then(async () => {
+          const iv = crypto.getRandomValues(new Uint8Array(12));
+          const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, this.key, enc.encode(JSON.stringify(obj))));
+          const out = new Uint8Array(12 + ct.length);
+          out.set(iv);
+          out.set(ct, 12);
+          brokers.forEach((b) => b.publish(out));
+        })
+        .catch(() => {});
+    }
+
+    onSignalBytes(bytes) {
+      if (bytes.length < 29) return;
+      this.recvChain = this.recvChain
+        .then(async () => {
+          if (this.stopped) return;
+          let obj;
+          try {
+            const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: bytes.subarray(0, 12) }, this.key, bytes.subarray(12));
+            obj = JSON.parse(dec.decode(plain));
+          } catch (e) {
+            return; // чужое или битое
+          }
+          if (!obj || typeof obj !== 'object' || typeof obj.from !== 'string' || obj.from === this.id) return;
+          if (typeof obj.m === 'string') {
+            if (this.seen.has(obj.m)) return; // то же сообщение через другой брокер
+            this.seen.add(obj.m);
+            if (this.seen.size > 2000) this.seen = new Set([...this.seen].slice(-1000));
+          }
+          if (obj.to && obj.to !== this.id) return;
+          await this.onSignal(obj);
+        })
+        .catch((e) => console.warn('[signal]', e));
+    }
+
+    announce() {
+      this.lastAnnounce = Date.now();
+      this.signal({ t: 'hi' });
+    }
+
+    async onSignal(obj) {
+      const from = obj.from.slice(0, 40);
+      const link = this.links.get(from);
+      switch (obj.t) {
+        case 'hi': {
+          if (link) return; // уже знакомы или соединяемся
+          if (this.links.size >= MAX_PEERS - 1) return;
+          if (this.id < from) this.connectTo(from);
+          else if (!obj.to) this.signal({ t: 'hi', to: from }); // пусть предложит тот, у кого id меньше
+          break;
+        }
+        case 'sdp': {
+          const sdp = obj.sdp;
+          if (!sdp || typeof sdp.sdp !== 'string') return;
+          if (sdp.type === 'offer') {
+            if (from > this.id) return; // предлагать должен меньший id
+            if (link) this.dropLink(link, true); // собеседник начал заново
+            if (this.links.size >= MAX_PEERS - 1) return;
+            const l = this.createLink(from, false);
+            await this.queueRtc(l, async () => {
+              await l.pc.setRemoteDescription({ type: 'offer', sdp: sdp.sdp });
+              for (const t of l.pc.getTransceivers()) {
+                const kind = t.receiver.track && t.receiver.track.kind;
+                if (kind && !l.tx[kind]) l.tx[kind] = t;
+                if (t.direction !== 'sendrecv' && t.direction !== 'stopped') t.direction = 'sendrecv';
+              }
+              this.applySenders(l);
+              await l.pc.setLocalDescription(await l.pc.createAnswer());
+              this.signal({ t: 'sdp', to: from, sdp: { type: 'answer', sdp: l.pc.localDescription.sdp } });
+              await this.flushIce(l);
+            });
+          } else if (sdp.type === 'answer' && link && link.outgoing) {
+            await this.queueRtc(link, async () => {
+              if (link.pc.signalingState !== 'have-local-offer') return;
+              await link.pc.setRemoteDescription({ type: 'answer', sdp: sdp.sdp });
+              await this.flushIce(link);
+            });
+          }
+          break;
+        }
+        case 'ice': {
+          if (!link || !obj.ice || typeof obj.ice.candidate !== 'string') return;
+          await this.queueRtc(link, async () => {
+            if (link.pc.remoteDescription) await link.pc.addIceCandidate(obj.ice).catch(() => {});
+            else if (link.iceQueue.length < 200) link.iceQueue.push(obj.ice);
+          });
+          break;
+        }
+        case 'bye':
+          if (link) this.dropLink(link);
+          break;
+        default:
+          break;
       }
-      this.scan(true);
     }
 
-    dropPending(id) {
-      const p = this.pending.get(id);
-      if (!p) return;
-      this.pending.delete(id);
+    queueRtc(link, fn) {
+      link.rtcQueue = link.rtcQueue.then(fn).catch((e) => console.warn('[rtc]', e));
+      return link.rtcQueue;
+    }
+
+    async flushIce(link) {
+      for (const c of link.iceQueue.splice(0)) await link.pc.addIceCandidate(c).catch(() => {});
+    }
+
+    /* ---------- соединения с собеседниками ---------- */
+    createLink(id, outgoing) {
+      const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+      const dc = pc.createDataChannel('bt', { negotiated: true, id: 0, ordered: true });
+      const link = {
+        id,
+        outgoing,
+        pc,
+        dc,
+        open: false,
+        info: null,
+        state: cleanState({}),
+        createdAt: Date.now(),
+        lastSeen: Date.now(),
+        typingUntil: 0,
+        mediaState: 'new',
+        tx: { audio: null, video: null },
+        streams: { audio: new MediaStream(), video: new MediaStream() },
+        rtcQueue: Promise.resolve(),
+        iceQueue: [],
+      };
+      this.links.set(id, link);
+      dc.onopen = () => {
+        if (this.links.get(id) !== link) return;
+        link.open = true;
+        link.lastSeen = Date.now();
+        this.lastChange = Date.now();
+        this.sendHello(link);
+      };
+      dc.onmessage = (e) => {
+        let data;
+        try {
+          data = JSON.parse(e.data);
+        } catch (err) {
+          return;
+        }
+        this.onData(link, data);
+      };
+      dc.onclose = () => this.dropLink(link);
+      pc.onicecandidate = (e) => {
+        if (e.candidate && e.candidate.candidate) this.signal({ t: 'ice', to: id, ice: e.candidate.toJSON() });
+      };
+      pc.ontrack = (e) => {
+        const stream = e.track.kind === 'video' ? link.streams.video : link.streams.audio;
+        for (const t of stream.getTracks()) if (t !== e.track) stream.removeTrack(t);
+        if (!stream.getTracks().includes(e.track)) stream.addTrack(e.track);
+        this.emit('media', link);
+      };
+      pc.onconnectionstatechange = () => {
+        if (this.links.get(id) !== link) return;
+        link.mediaState = pc.connectionState;
+        if (pc.connectionState === 'failed' || pc.connectionState === 'closed') this.dropLink(link);
+        else this.emit('peers');
+      };
+      if (outgoing) {
+        link.tx.audio = pc.addTransceiver('audio', { direction: 'sendrecv' });
+        link.tx.video = pc.addTransceiver('video', { direction: 'sendrecv' });
+      }
+      return link;
+    }
+
+    connectTo(id) {
+      const link = this.createLink(id, true);
+      this.applySenders(link);
+      this.queueRtc(link, async () => {
+        await link.pc.setLocalDescription(await link.pc.createOffer());
+        this.signal({ t: 'sdp', to: id, sdp: { type: 'offer', sdp: link.pc.localDescription.sdp } });
+      });
+    }
+
+    dropLink(link, silent) {
+      if (this.links.get(link.id) !== link) return;
+      this.links.delete(link.id);
+      const wasOpen = link.open;
+      link.open = false;
       try {
-        p.conn.close();
+        link.dc.close();
       } catch (e) {}
-    }
-
-    probeEvery() {
-      const quiet = Date.now() - this.lastChange;
-      if (quiet < 30000) return 3000;
-      if (quiet < 120000) return 10000;
-      return 60000;
+      try {
+        link.pc.close();
+      } catch (e) {}
+      this.lastChange = Date.now();
+      if (silent) return;
+      if (wasOpen && link.info) this.emit('peer-left', link);
+      this.emit('peers');
+      // может, это был сбой — напоминаем о себе
+      if (!this.stopped) setTimeout(() => !this.stopped && this.announce(), 1000 + Math.random() * 1000);
     }
 
     tick() {
+      if (this.stopped) return;
       const now = Date.now();
       for (const link of [...this.links.values()]) {
-        if (now - link.lastSeen > DEAD_MS || (!link.info && now - link.openedAt > HELLO_TIMEOUT)) {
-          this.closeConn(link.conn);
-          continue;
+        if (link.open) {
+          if (now - link.lastSeen > DEAD_MS) {
+            this.dropLink(link);
+            continue;
+          }
+          this.send(link, { t: 'ping' });
+        } else if (now - link.createdAt > CONNECT_TIMEOUT) {
+          this.dropLink(link, true);
         }
-        this.send(link, { t: 'ping' });
       }
-      for (const [id, p] of this.pending) {
-        if (now - p.at > CONNECT_TIMEOUT) this.dropPending(id);
+      const anyUp = this.brokers.some((b) => b.ready);
+      if (!anyUp) {
+        if (now - this.startedAt > 15000) this.setStatus('offline');
+      } else {
+        const alone = !this.members().length;
+        const every = alone ? (now - this.lastChange < 60000 ? 5000 : 15000) : 30000;
+        if (now - this.lastAnnounce >= every) this.announce();
       }
-      // Обычно стучится младшему тот, у кого место старше; каждый третий раз —
-      // ко всем, на случай если связь в одну сторону почему-то не заводится.
-      if (now - this.lastProbe >= this.probeEvery()) this.scan(++this.probeRound % 3 === 0);
       let typingChanged = false;
       for (const link of this.links.values()) {
         if (link.typingUntil && link.typingUntil < now) {
@@ -372,97 +589,10 @@
       if (typingChanged) this.emit('typing');
     }
 
-    /* ---------- соединения с собеседниками ---------- */
-    wireConn(conn, outgoing) {
-      conn.on('open', () => this.onConnOpen(conn, outgoing));
-      conn.on('data', (data) => this.onData(conn, data));
-      conn.on('close', () => this.onConnClose(conn));
-      conn.on('error', (err) => {
-        if (err && err.type === 'message-too-big') return;
-        this.closeConn(conn);
-      });
-    }
-
-    closeConn(conn) {
-      try {
-        conn.close();
-      } catch (e) {}
-      this.onConnClose(conn);
-    }
-
-    onConnOpen(conn, outgoing) {
-      const id = conn.peer;
-      const p = this.pending.get(id);
-      if (p && p.conn === conn) this.pending.delete(id);
-      if (!this.peer || this.stopped) {
-        conn.close();
-        return;
-      }
-      const old = this.links.get(id);
-      if (old && old.conn !== conn) {
-        if (old.conn.open) {
-          // Две связи с одним человеком (постучались одновременно).
-          // Оставляем ту, что начал участник со старшим местом, — обе стороны решат одинаково.
-          const starter = (out) => (out ? this.slot : this.slotOf(id));
-          if (starter(outgoing) <= starter(old.outgoing)) {
-            conn.close();
-            return;
-          }
-        }
-        this.dropLink(old, true);
-        try {
-          old.conn.close();
-        } catch (e) {}
-      }
-      const link = {
-        id,
-        conn,
-        outgoing,
-        openedAt: Date.now(),
-        // при замене связи помним, кто это, чтобы не показывать «вышел/зашёл»
-        info: old ? old.info : null,
-        state: old ? old.state : cleanState({}),
-        lastSeen: Date.now(),
-        typingUntil: 0,
-        pc: null,
-        mediaState: 'new',
-        tx: { audio: null, video: null },
-        streams: { audio: new MediaStream(), video: new MediaStream() },
-        rtcQueue: Promise.resolve(),
-        iceQueue: [],
-      };
-      this.links.set(id, link);
-      this.lastChange = Date.now();
-      this.sendHello(link);
-      this.setupMedia(link);
-    }
-
-    onConnClose(conn) {
-      const id = conn.peer;
-      const p = this.pending.get(id);
-      if (p && p.conn === conn) this.pending.delete(id);
-      const link = this.links.get(id);
-      if (link && link.conn === conn) this.dropLink(link);
-    }
-
-    dropLink(link, replacing) {
-      if (this.links.get(link.id) === link) this.links.delete(link.id);
-      if (link.pc) {
-        try {
-          link.pc.close();
-        } catch (e) {}
-        link.pc = null;
-      }
-      if (replacing) return;
-      this.lastChange = Date.now();
-      if (link.info) this.emit('peer-left', link);
-      this.emit('peers');
-    }
-
     send(link, msg) {
-      if (!link.conn || !link.conn.open) return false;
+      if (!link.open || link.dc.readyState !== 'open') return false;
       try {
-        link.conn.send(msg);
+        link.dc.send(JSON.stringify(msg));
         return true;
       } catch (e) {
         return false;
@@ -476,12 +606,9 @@
     }
 
     sendHello(link) {
-      this.send(link, { t: 'hello', v: 1, user: this.me, state: this.local });
+      this.send(link, { t: 'hello', v: 2, user: this.me, state: this.local });
       const msgs = this.messages.slice(-HISTORY_SYNC).map(wire);
-      for (let i = 0; i < msgs.length; i += HIST_CHUNK) {
-        this.send(link, { t: 'hist', msgs: msgs.slice(i, i + HIST_CHUNK) });
-      }
-      // всё, что ждало встречи, теперь доставлено
+      for (let i = 0; i < msgs.length; i += HIST_CHUNK) this.send(link, { t: 'hist', msgs: msgs.slice(i, i + HIST_CHUNK) });
       let changed = false;
       for (const m of this.messages) {
         if (m.pending) {
@@ -492,9 +619,8 @@
       if (changed) this.emit('messages', { added: [], delivered: true });
     }
 
-    onData(conn, data) {
-      const link = this.links.get(conn.peer);
-      if (!link || link.conn !== conn || !data || typeof data !== 'object') return;
+    onData(link, data) {
+      if (this.links.get(link.id) !== link || !data || typeof data !== 'object') return;
       link.lastSeen = Date.now();
       switch (data.t) {
         case 'hello': {
@@ -530,9 +656,6 @@
           link.typingUntil = Date.now() + 4500;
           this.emit('typing');
           break;
-        case 'rtc':
-          this.onRtc(link, data);
-          break;
         default:
           break; // ping и всё незнакомое
       }
@@ -562,9 +685,8 @@
       text = String(text || '').trim().slice(0, MAX_TEXT);
       if (!text) return null;
       const m = { id: BT.uid(), uid: this.me.uid, name: this.me.name, color: this.me.color, text, ts: Date.now() };
-      const ready = [...this.links.values()].filter((l) => l.info);
       let sent = 0;
-      for (const link of ready) if (this.send(link, { t: 'msg', m: wire(m) })) sent++;
+      for (const link of this.members()) if (this.send(link, { t: 'msg', m: wire(m) })) sent++;
       if (!sent) m.pending = true;
       this.msgIds.add(m.id);
       this.messages.push(m);
@@ -584,7 +706,7 @@
 
     /* ---------- кто где ---------- */
     members() {
-      return [...this.links.values()].filter((l) => l.info);
+      return [...this.links.values()].filter((l) => l.open && l.info);
     }
     typingNames() {
       const now = Date.now();
@@ -611,84 +733,6 @@
     }
 
     /* ---------- звук и видео ---------- */
-    setupMedia(link) {
-      let pc;
-      try {
-        pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
-      } catch (e) {
-        console.warn('[rtc] нет RTCPeerConnection', e);
-        return;
-      }
-      link.pc = pc;
-      pc.onicecandidate = (e) => {
-        if (e.candidate && e.candidate.candidate) this.send(link, { t: 'rtc', ice: e.candidate.toJSON() });
-      };
-      pc.ontrack = (e) => {
-        const stream = e.track.kind === 'video' ? link.streams.video : link.streams.audio;
-        for (const t of stream.getTracks()) if (t !== e.track) stream.removeTrack(t);
-        if (!stream.getTracks().includes(e.track)) stream.addTrack(e.track);
-        this.emit('media', link);
-      };
-      pc.onconnectionstatechange = () => {
-        if (link.pc !== pc) return;
-        link.mediaState = pc.connectionState;
-        this.emit('peers');
-        if (pc.connectionState === 'failed') {
-          if (link.outgoing) pc.restartIce && pc.restartIce();
-          else this.send(link, { t: 'rtc', restart: 1 });
-        }
-      };
-      if (link.outgoing) {
-        // Предлагает тот, кто начал соединение; второй только отвечает — без столкновений.
-        link.tx.audio = pc.addTransceiver('audio', { direction: 'sendrecv' });
-        link.tx.video = pc.addTransceiver('video', { direction: 'sendrecv' });
-        pc.onnegotiationneeded = () =>
-          this.queueRtc(link, async () => {
-            if (link.pc !== pc || pc.signalingState !== 'stable') return;
-            const offer = await pc.createOffer();
-            await pc.setLocalDescription(offer);
-            this.send(link, { t: 'rtc', sdp: { type: 'offer', sdp: pc.localDescription.sdp } });
-          });
-      }
-      this.applySenders(link);
-    }
-
-    queueRtc(link, fn) {
-      link.rtcQueue = link.rtcQueue.then(fn).catch((e) => console.warn('[rtc]', e));
-    }
-
-    onRtc(link, data) {
-      this.queueRtc(link, async () => {
-        const pc = link.pc;
-        if (!pc || pc.signalingState === 'closed') return;
-        if (data.restart) {
-          if (link.outgoing && pc.restartIce) pc.restartIce();
-          return;
-        }
-        const sdp = data.sdp;
-        if (sdp && typeof sdp.sdp === 'string') {
-          if (sdp.type === 'offer' && !link.outgoing) {
-            await pc.setRemoteDescription({ type: 'offer', sdp: sdp.sdp });
-            for (const t of pc.getTransceivers()) {
-              const kind = t.receiver.track && t.receiver.track.kind;
-              if (kind && !link.tx[kind]) link.tx[kind] = t;
-              if (t.direction !== 'sendrecv' && t.direction !== 'stopped') t.direction = 'sendrecv';
-            }
-            this.applySenders(link);
-            const answer = await pc.createAnswer();
-            await pc.setLocalDescription(answer);
-            this.send(link, { t: 'rtc', sdp: { type: 'answer', sdp: pc.localDescription.sdp } });
-          } else if (sdp.type === 'answer' && link.outgoing && pc.signalingState === 'have-local-offer') {
-            await pc.setRemoteDescription({ type: 'answer', sdp: sdp.sdp });
-          }
-          for (const c of link.iceQueue.splice(0)) await pc.addIceCandidate(c).catch(() => {});
-        } else if (data.ice && typeof data.ice === 'object' && typeof data.ice.candidate === 'string') {
-          if (pc.remoteDescription) await pc.addIceCandidate(data.ice).catch(() => {});
-          else if (link.iceQueue.length < 100) link.iceQueue.push(data.ice);
-        }
-      });
-    }
-
     applySenders(link) {
       if (!link.pc) return;
       const together = this.local.voice && link.state.voice;
@@ -704,6 +748,6 @@
   }
 
   BT.Room = Room;
-  BT.MAX_SLOTS = MAX_SLOTS;
+  BT.MAX_SLOTS = MAX_PEERS;
   BT.MAX_TEXT = MAX_TEXT;
 })();
