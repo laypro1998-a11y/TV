@@ -756,3 +756,17 @@ button.f-main:hover { background: var(--bg3); }
   .me-card-btns { width: 100%; }
   .me-card-btns .btn { flex: 1; }
 }
+
+/* ---------- помощь со связью ---------- */
+.toast { pointer-events: auto; display: flex; align-items: center; gap: 12px; max-width: 560px; }
+.toast-btn { flex-shrink: 0; padding: 6px 10px; border-radius: 7px; background: var(--bg3); color: var(--text); font-weight: 700; font-size: 13px; }
+.toast-btn:hover { background: var(--bg4); }
+.help-list { margin: 0 0 12px; padding-left: 20px; color: var(--text2); font-size: 14px; }
+.help-list li { margin: 0 0 8px; }
+.field-row { display: flex; gap: 10px; }
+.mono-sm { font-family: var(--mono); font-size: 12px; margin-top: 6px; }
+.room-status .link-btn, .mh-topic .link-btn { font-size: inherit; color: var(--yellow); }
+@media (max-width: 760px) {
+  .field-row { flex-direction: column; gap: 0; }
+  .toast { flex-wrap: wrap; }
+}

@@ -68,16 +68,26 @@
   /* =====================================================================
    * Тосты, модалки, всплывашки
    * ===================================================================== */
-  function toast(text, kind) {
+  function toast(text, kind, action) {
     const el = document.createElement('div');
     el.className = 'toast' + (kind ? ' ' + kind : '');
     el.textContent = text;
+    if (action) {
+      const b = document.createElement('button');
+      b.className = 'toast-btn';
+      b.textContent = action.label;
+      b.onclick = () => {
+        el.remove();
+        action.onClick();
+      };
+      el.appendChild(b);
+    }
     $('toasts').appendChild(el);
     requestAnimationFrame(() => el.classList.add('show'));
     setTimeout(() => {
       el.classList.remove('show');
       setTimeout(() => el.remove(), 300);
-    }, kind === 'error' ? 6000 : 3200);
+    }, action ? 9000 : kind === 'error' ? 6000 : 3200);
   }
 
   function notify(title, body) {
@@ -763,7 +773,7 @@
       { icon: 'chat', label: 'Написать', onClick: () => openDM(f) },
       { icon: 'phone', label: 'Позвонить', onClick: () => startCall(f) },
       { icon: 'copy', label: 'Скопировать код друга', onClick: () => copyWithToast(fmtCode(f.code), 'Код скопирован') },
-      { icon: 'signal', label: 'Проверка связи', onClick: diagModal },
+      { icon: 'signal', label: 'Почему не соединяется?', onClick: () => connectHelpModal(S.dm.get(f.code)) },
       '-',
       { icon: 'x', label: 'Удалить из друзей', danger: true, onClick: () => removeFriend(f) },
     ]);
@@ -836,6 +846,7 @@
         <label class="check"><input type="checkbox" id="stSounds"${S.prefs.sounds ? ' checked' : ''}> Звуки: новые сообщения, вход и выход из голосового</label>
         <div class="btn-row">
           <button type="button" class="btn ghost" id="stDiag">${icon('signal')} Проверка связи</button>
+          <button type="button" class="btn ghost" id="stTurn">${icon('link')} Свой TURN-сервер${S.prefs.turn && S.prefs.turn.urls ? ' ✓' : ''}</button>
           ${'Notification' in window && Notification.permission === 'default' ? `<button type="button" class="btn ghost" id="stNotif">${icon('bell')} Уведомления о звонках</button>` : ''}
         </div>
         <details class="advanced">
@@ -891,6 +902,7 @@
         };
         box.querySelector('#stCopyKey').onclick = () => copyWithToast(ident.fmtKey(S.profile.secret), 'Ключ входа скопирован — храни его в надёжном месте');
         box.querySelector('#stDiag').onclick = diagModal;
+        box.querySelector('#stTurn').onclick = turnModal;
         const nb = box.querySelector('#stNotif');
         if (nb) nb.onclick = askNotifications;
         box.querySelector('#stLogout').onclick = logout;
@@ -935,16 +947,116 @@
     for (const b of r.brokers) html += row(b.ok, b.host, b.ok ? 'работает' : b.error || 'недоступен');
     html += '<div class="diag-cat">Соединение с другом</div>';
     html += row(r.ice.srflx > 0, 'Прямое соединение (STUN)', r.ice.srflx > 0 ? 'внешний адрес получен' : 'STUN недоступен — получится соединиться только в одной Wi-Fi сети');
-    html += row(r.ice.relay > 0, 'Запасной путь (TURN)', r.ice.relay > 0 ? 'работает' : 'недоступен — при строгом мобильном интернете соединиться может не получиться');
+    html += row(
+      r.ice.relay > 0,
+      'Запасной путь (TURN)',
+      r.ice.relay > 0 ? 'работает: ' + r.ice.relayFrom.join(', ') : 'недоступен — если напрямую не соединится, звонка не будет (переписка всё равно работает)'
+    );
+    if (r.ice.custom) html += row(r.ice.customOk, 'Твой TURN-сервер', r.ice.customOk ? 'работает' : 'не отвечает — проверь адрес, логин и пароль');
     const brokersOk = r.brokers.some((b) => b.ok);
     let verdict;
     if (!brokersOk) verdict = 'Все серверы знакомств недоступны — Болталка не сможет найти друзей. Попробуй другую сеть (Wi-Fi вместо мобильного интернета) или VPN.';
     else if (!r.ice.srflx && !r.ice.relay) verdict = 'Друзей найти можно, но соединиться получится только в одной сети. Попробуй другую сеть или VPN.';
-    else if (!r.ice.relay) verdict = 'В целом связь есть. Если с другом всё равно не соединяется — у кого-то из вас слишком строгая сеть: попробуйте Wi-Fi вместо мобильного интернета.';
+    else if (!r.ice.relay)
+      verdict = 'Связь есть, но без запасного TURN-сервера. Если с другом не соединяется звонок — у кого-то из вас строгая сеть (мобильный интернет, VPN). Помогут Wi-Fi вместо мобильного интернета или свой TURN-сервер.';
     else verdict = 'Всё в порядке! Если с другом не соединяется — пусть он тоже откроет «Проверку связи» и пришлёт тебе результат.';
     html += `<p class="diag-verdict">${esc(verdict)}</p>`;
     if (inAppBrowser()) html += '<p class="diag-verdict warn">Болталка открыта внутри приложения (Telegram, VK и т. п.). Открой её в обычном браузере.</p>';
+    html += `<div class="btn-row"><button class="btn ghost sm" id="dgTurn">${icon('link')} Свой TURN-сервер</button><button class="btn ghost sm" id="dgCopy">${icon('copy')} Скопировать результат</button></div>`;
     body.innerHTML = html;
+    body.querySelector('#dgTurn').onclick = turnModal;
+    body.querySelector('#dgCopy').onclick = () =>
+      copyWithToast(
+        'Болталка, проверка связи:\n' +
+          r.brokers.map((b) => `${b.ok ? '✓' : '✗'} ${b.host}`).join('\n') +
+          `\n${r.ice.srflx ? '✓' : '✗'} STUN\n${r.ice.relay ? '✓' : '✗'} TURN ${r.ice.relayFrom.join(', ')}\nбраузер: ${navigator.userAgent}`,
+        'Результат скопирован — отправь его другу или в чат поддержки'
+      );
+  }
+
+  /** Почему с другом нет прямого соединения и что делать. */
+  function connectHelpModal(room) {
+    const f = friendOfRoom(room);
+    const fail = room && room.lastFail;
+    const who = f ? f.name : (fail && fail.name) || 'другом';
+    const types = (list) => {
+      const has = (t) => (list || []).includes(t);
+      return `${has('host') ? '✓' : '✗'} локальный · ${has('srflx') ? '✓' : '✗'} внешний (STUN) · ${has('relay') ? '✓' : '✗'} TURN`;
+    };
+    const reasons = {
+      nosdp: 'Запрос на соединение не дошёл до друга или ответ не вернулся. Обычно это временно — Болталка пробует снова.',
+      nocand: 'Не пришли сетевые адреса друга. Возможно, у друга браузер или расширение блокирует WebRTC (часто так делают VPN-расширения).',
+      noturn: 'Ваши сети не пускают прямое соединение (так бывает с мобильным интернетом, VPN и некоторыми роутерами), а запасной TURN-сервер недоступен.',
+      relayfail: 'Даже через запасной TURN-сервер соединиться не вышло — возможно, сервер перегружен или заблокирован.',
+    };
+    modal({
+      title: 'Почему не работают звонки',
+      sub: `Друзья находят друг друга и переписываются через серверы знакомств. Но для звука нужно прямое соединение или TURN-сервер, и с ${esc(who)} оно пока не получилось.`,
+      wide: true,
+      body: `
+        ${fail ? `<div class="diag-row bad"><span class="diag-ic">${icon('x')}</span><div><b>Причина</b><div class="hint">${esc(reasons[fail.reason] || '')}</div>
+          <div class="hint mono-sm">У тебя: ${types(fail.local)}<br>У друга: ${types(fail.remote)}<br>Попыток: ${fail.attempts}</div></div></div>` : ''}
+        <div class="diag-cat">Что попробовать</div>
+        <ol class="help-list">
+          <li><b>Выключите VPN</b> (или, наоборот, включите у обоих) и откройте Болталку в обычном Chrome, Яндекс Браузере или Edge — не внутри Telegram/VK.</li>
+          <li><b>Подключитесь к Wi-Fi</b> вместо мобильного интернета — хотя бы один из вас.</li>
+          <li><b>Настройте свой TURN-сервер</b> — это бесплатно и надёжнее всего. Достаточно сделать это одному из вас.</li>
+        </ol>`,
+      actions: [
+        { label: 'Проверка связи', kind: 'ghost', onClick: () => setTimeout(diagModal, 0) },
+        { label: 'Свой TURN-сервер', kind: 'primary', onClick: () => setTimeout(turnModal, 0) },
+      ],
+    });
+  }
+
+  function turnModal() {
+    const t = S.prefs.turn || {};
+    modal({
+      title: 'Свой TURN-сервер',
+      sub: 'TURN пересылает звук, когда напрямую соединиться нельзя. Хватит, если он настроен у одного из вас.',
+      wide: true,
+      body: `
+        <ol class="help-list">
+          <li>Зарегистрируйся бесплатно на <a href="https://www.metered.ca/stun-turn" target="_blank" rel="noopener noreferrer">metered.ca</a> (Open Relay, бесплатный лимит трафика) или <a href="https://www.expressturn.com" target="_blank" rel="noopener noreferrer">expressturn.com</a>.</li>
+          <li>В личном кабинете найди адрес TURN-сервера, логин (username) и пароль (credential).</li>
+          <li>Впиши их сюда и нажми «Сохранить».</li>
+        </ol>
+        <label class="field"><span>Адрес (можно несколько через запятую)</span><input id="tnUrls" placeholder="turn:a.relay.metered.ca:443?transport=tcp" value="${esc(t.urls || '')}" spellcheck="false" autocomplete="off"></label>
+        <div class="field-row">
+          <label class="field grow"><span>Логин</span><input id="tnUser" value="${esc(t.username || '')}" spellcheck="false" autocomplete="off"></label>
+          <label class="field grow"><span>Пароль</span><input id="tnPass" value="${esc(t.credential || '')}" spellcheck="false" autocomplete="off"></label>
+        </div>
+        <p class="hint error" id="tnErr" hidden>Адрес должен начинаться с turn: или turns:</p>`,
+      actions: [
+        {
+          label: 'Убрать',
+          kind: 'ghost',
+          onClick: () => {
+            S.prefs.turn = null;
+            savePrefs();
+            BT.net.setCustomTurn(null);
+            forEachRoom((r) => r.retryNow());
+            toast('Свой TURN-сервер убран');
+          },
+        },
+        {
+          label: 'Сохранить',
+          kind: 'primary',
+          onClick: (box) => {
+            const urls = box.querySelector('#tnUrls').value.trim();
+            if (!urls || !/^turns?:/i.test(urls)) {
+              box.querySelector('#tnErr').hidden = false;
+              return false;
+            }
+            S.prefs.turn = { urls, username: box.querySelector('#tnUser').value.trim(), credential: box.querySelector('#tnPass').value.trim() };
+            savePrefs();
+            BT.net.setCustomTurn(S.prefs.turn);
+            forEachRoom((r) => r.retryNow()); // сразу пробуем соединиться заново, уже через TURN
+            toast('TURN-сервер сохранён. Проверь его в «Проверке связи».');
+          },
+        },
+      ],
+    });
   }
 
   /* =====================================================================
@@ -1064,12 +1176,19 @@
       }
     });
     room.on('call', ({ link, data }) => onCallSignal(room, link, data));
-    room.on('link-failed', ({ name }) => {
+    room.on('link-failed', (fail) => {
       if (!(S.room === room || room.dm)) return;
+      if (room.dm) renderFriendsBits();
+      if (S.room === room) renderSideHead();
       const last = failToastAt.get(room.code) || 0;
-      if (Date.now() - last < 90000) return;
+      if (Date.now() - last < 180000) return;
       failToastAt.set(room.code, Date.now());
-      toast(`Нашли ${name || 'друга'}, но соединиться не получилось. Пробуем ещё… Если не выйдет — открой «Проверку связи».`, 'error');
+      const who = fail.name || 'другом';
+      const text =
+        fail.reason === 'nosdp'
+          ? `С ${who} пока не удалось договориться о соединении — пробуем ещё.`
+          : `С ${who} не получается соединиться напрямую. Переписка работает, а для звонков нужен запасной сервер (TURN).`;
+      toast(text, 'error', { label: 'Что делать?', onClick: () => connectHelpModal(room) });
     });
   }
 
@@ -1353,6 +1472,7 @@
   function syncAudio() {
     const alive = new Set();
     for (const l of members()) {
+      if (l.relay) continue; // без прямой связи звука нет
       alive.add(l.id);
       let el = audioEls.get(l.id);
       if (!el) {
@@ -1456,6 +1576,11 @@
           : `${f.name} ещё не принял(а) заявку в друзья или не в сети.`,
         'error'
       );
+      return;
+    }
+    if (link.relay) {
+      openDM(f);
+      connectHelpModal(room);
       return;
     }
     openDM(f);
@@ -1662,6 +1787,7 @@
     const connecting = room.connecting();
     switch (room.status) {
       case 'online':
+        if (n && room.members().some((m) => m.relay) && !connecting.length) return { cls: 'warn', text: `В сети: ${n + 1} · не со всеми есть звук`, help: true };
         if (n) return { cls: 'ok', text: `В сети: ${n + 1}` };
         if (connecting.length) return { cls: 'warn', text: `Нашли ${connecting[0]}, соединяемся…` };
         return { cls: 'ok', text: 'Ты тут один — позови друга' };
@@ -1677,6 +1803,10 @@
   function friendStatus(f) {
     const room = S.dm.get(f.code);
     const link = friendLink(f);
+    if (link && link.relay) {
+      if (room && room.connecting().length) return { on: true, text: 'в сети · соединяемся…' };
+      return { on: true, relay: true, text: 'в сети · только чат' };
+    }
     if (link) return { on: true, text: link.state.voice ? 'в звонке' : 'в сети' };
     if (room && room.connecting().length) return { on: false, text: 'соединяемся…' };
     if (!f.confirmed) return { on: false, text: 'ждём, когда друг примет заявку' };
@@ -1717,8 +1847,9 @@
       <button class="room-title" id="roomMenuBtn" aria-haspopup="menu">
         <span class="rt-name">${esc(rec.name)}</span>${icon('chevron', 'rt-chev')}
       </button>
-      <div class="room-status ${st.cls}"><span class="dot"></span>${esc(st.text)}</div>`;
+      <div class="room-status ${st.cls}"><span class="dot"></span>${esc(st.text)}${st.help ? ' <button class="link-btn" id="stHelp">Почему?</button>' : ''}</div>`;
     $('roomMenuBtn').addEventListener('click', (e) => roomMenu(e.currentTarget));
+    if ($('stHelp')) $('stHelp').addEventListener('click', () => connectHelpModal(S.room));
   }
 
   function voiceList() {
@@ -1903,7 +2034,7 @@
         head.innerHTML = `
           ${menuBtn}
           <div class="mh-title"><div class="avatar-wrap">${avatarHtml(f.name, f.color, 'xs')}<span class="presence sm ${st.on ? 'on' : ''}"></span></div><span class="mh-name">${esc(f.name)}</span></div>
-          <div class="mh-topic">${esc(st.text)}</div>
+          <div class="mh-topic">${esc(st.text)}${st.relay ? ' <button class="link-btn" id="mhWhy">почему нет звонков?</button>' : ''}</div>
           <div class="mh-actions">
             ${
               inCall
@@ -1918,6 +2049,7 @@
         if ($('mhVoice')) $('mhVoice').addEventListener('click', () => setView('voice'));
         if ($('mhChat')) $('mhChat').addEventListener('click', () => setView('chat'));
         $('mhMore').addEventListener('click', (e) => friendMenu(e.currentTarget, f));
+        if ($('mhWhy')) $('mhWhy').addEventListener('click', () => connectHelpModal(S.room));
       } else {
         head.innerHTML = `
           ${menuBtn}
@@ -2600,6 +2732,9 @@
       f.reqAt = 0;
     }
     saveFriends();
+
+    await BT.net.ready;
+    if (S.prefs.turn) BT.net.setCustomTurn(S.prefs.turn);
 
     S.hub = new BT.Hub(S.profile.code);
     S.hub.on('request', onRequest);

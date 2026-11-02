@@ -11,11 +11,48 @@
   const BROKERS = ['wss://broker.emqx.io:8084/mqtt', 'wss://broker.hivemq.com:8884/mqtt', 'wss://test.mosquitto.org:8081/mqtt'];
 
   // STUN — узнать свой внешний адрес; TURN — пересылка звука, если напрямую нельзя.
-  // Свой TURN можно добавить сюда.
-  const ICE_SERVERS = [
-    { urls: ['stun:stun.l.google.com:19302', 'stun:stun.cloudflare.com:3478'] },
-    { urls: ['turn:eu-0.turn.peerjs.com:3478', 'turn:us-0.turn.peerjs.com:3478'], username: 'peerjs', credential: 'peerjsp' },
-  ];
+  // Open Relay (Metered) — бесплатный публичный TURN; свой TURN задаётся в настройках.
+  const STUN = { urls: ['stun:stun.l.google.com:19302', 'stun:stun.cloudflare.com:3478'] };
+  const OPENRELAY = {
+    urls: ['turn:openrelay.metered.ca:80', 'turn:openrelay.metered.ca:443', 'turn:openrelay.metered.ca:443?transport=tcp'],
+    username: 'openrelayproject',
+    credential: 'openrelayproject',
+  };
+  const ice = { custom: null, rest: null, servers: [STUN, OPENRELAY] };
+  function rebuildIce() {
+    ice.servers = [STUN].concat(ice.custom ? [ice.custom] : [], ice.rest ? [ice.rest] : [], [OPENRELAY]);
+  }
+  // Временные пароли для «staticauth» Open Relay (TURN REST API: HMAC-SHA1 общего секрета).
+  async function openRelayRest() {
+    const username = Math.floor(Date.now() / 1000) + 7 * 86400 + ':boltalka';
+    const key = await crypto.subtle.importKey('raw', enc.encode('openrelayprojectsecret'), { name: 'HMAC', hash: 'SHA-1' }, false, ['sign']);
+    const sig = new Uint8Array(await crypto.subtle.sign('HMAC', key, enc.encode(username)));
+    return {
+      urls: [
+        'turn:staticauth.openrelay.metered.ca:80',
+        'turn:staticauth.openrelay.metered.ca:443',
+        'turn:staticauth.openrelay.metered.ca:443?transport=tcp',
+        'turns:staticauth.openrelay.metered.ca:443?transport=tcp',
+      ],
+      username,
+      credential: btoa(String.fromCharCode(...sig)),
+    };
+  }
+  const ready = (async () => {
+    try {
+      ice.rest = await openRelayRest();
+    } catch (e) {}
+    rebuildIce();
+  })();
+  /** Свой TURN из настроек: { urls: 'turn:…, turns:…', username, credential } или null. */
+  function setCustomTurn(cfg) {
+    const urls = String((cfg && cfg.urls) || '')
+      .split(/[\s,]+/)
+      .map((u) => u.trim())
+      .filter((u) => /^turns?:/i.test(u));
+    ice.custom = urls.length ? { urls, username: String(cfg.username || ''), credential: String(cfg.credential || '') } : null;
+    rebuildIce();
+  }
 
   const randId = () => Array.from(crypto.getRandomValues(new Uint8Array(8)), (b) => b.toString(16).padStart(2, '0')).join('');
   const hex = (b) => Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('');
@@ -265,12 +302,12 @@
       const b = pool.get(u);
       return { host: b.host, ok: b.ready, error: b.lastError };
     });
-    const ice = { host: 0, srflx: 0, relay: 0, relayFrom: [], error: '' };
+    const res = { host: 0, srflx: 0, relay: 0, relayFrom: [], custom: !!ice.custom, customOk: false, error: '' };
     try {
-      const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+      const pc = new RTCPeerConnection({ iceServers: ice.servers });
       pc.createDataChannel('test');
       const done = new Promise((resolve) => {
-        const t = setTimeout(resolve, 8000);
+        const t = setTimeout(resolve, 9000);
         pc.onicecandidate = (e) => {
           if (!e.candidate) {
             clearTimeout(t);
@@ -279,11 +316,16 @@
           }
           const m = / typ (\w+)/.exec(e.candidate.candidate || '');
           const typ = m ? m[1] : '';
-          if (typ === 'host') ice.host++;
-          if (typ === 'srflx' || typ === 'prflx') ice.srflx++;
+          if (typ === 'host') res.host++;
+          if (typ === 'srflx' || typ === 'prflx') res.srflx++;
           if (typ === 'relay') {
-            ice.relay++;
-            if (e.url && !ice.relayFrom.includes(e.url)) ice.relayFrom.push(e.url);
+            res.relay++;
+            let host = '';
+            try {
+              host = String(e.url || '').replace(/^turns?:/, '').split(/[:?]/)[0];
+            } catch (err) {}
+            if (host && !res.relayFrom.includes(host)) res.relayFrom.push(host);
+            if (ice.custom && e.url && ice.custom.urls.some((u) => u === e.url)) res.customOk = true;
           }
         };
       });
@@ -291,10 +333,10 @@
       await done;
       pc.close();
     } catch (e) {
-      ice.error = String(e.message || e);
+      res.error = String(e.message || e);
     }
-    return { brokers, ice };
+    return { brokers, ice: res };
   }
 
-  BT.net = { BROKERS, ICE_SERVERS, broker, pool, randId, hex, sha256, keyFrom, seal, open, diagnose };
+  BT.net = { BROKERS, iceServers: () => ice.servers, setCustomTurn, ready, broker, pool, randId, hex, sha256, keyFrom, seal, open, diagnose };
 })();
