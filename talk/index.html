@@ -4,14 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
 <meta name="theme-color" content="#15161c">
-<meta name="description" content="Болталка — простой голосовой и текстовый чат для друзей. Без регистрации и без своего сервера.">
+<meta name="description" content="Болталка — простой голосовой и текстовый чат для друзей. Друзья, личные сообщения и звонки — без своего сервера.">
 <title>Болталка</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='18' fill='%237c6cff'/%3E%3Cpath d='M18 22a6 6 0 0 1 6-6h16a6 6 0 0 1 6 6v12a6 6 0 0 1-6 6H31l-8 7v-7h-1a4 4 0 0 1-4-4z' fill='%23fff'/%3E%3C/svg%3E">
-<link rel="stylesheet" href="style.css?v=3">
+<link rel="stylesheet" href="style.css?v=4">
 </head>
 <body>
 <div class="app" id="app">
-  <nav class="rail" id="rail" aria-label="Комнаты"></nav>
+  <nav class="rail" id="rail" aria-label="Друзья и комнаты"></nav>
 
   <aside class="sidebar" id="sidebar" aria-label="Каналы">
     <header class="side-head" id="sideHead"></header>
@@ -34,25 +34,29 @@
     </section>
 
     <section class="voice" id="voiceView" hidden>
+      <div class="call-banner" id="callBanner" hidden></div>
       <div class="tiles" id="tiles"></div>
       <div class="voice-dock" id="voiceDock"></div>
     </section>
 
-    <section class="welcome" id="welcome" hidden></section>
+    <section class="home" id="homeView" hidden></section>
   </main>
 
   <aside class="members" id="members" aria-label="Участники"></aside>
   <div class="scrim" id="scrim"></div>
 </div>
 
+<div class="call-overlay" id="callOverlay" hidden></div>
 <div id="modalRoot"></div>
 <div class="popover" id="popover" hidden></div>
 <div class="toasts" id="toasts" aria-live="polite"></div>
 <div id="audioSink" hidden></div>
 
 <noscript><p style="padding:20px;color:#fff">Для Болталки нужен JavaScript.</p></noscript>
-<script src="js/util.js?v=3"></script>
-<script src="js/room.js?v=3"></script>
-<script src="js/app.js?v=3"></script>
+<script src="js/util.js?v=4"></script>
+<script src="js/net.js?v=4"></script>
+<script src="js/room.js?v=4"></script>
+<script src="js/friends.js?v=4"></script>
+<script src="js/app.js?v=4"></script>
 </body>
 </html>

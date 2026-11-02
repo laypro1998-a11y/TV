@@ -1,39 +1,18 @@
-/* Болталка — сеть.
+/* Болталка — комната.
  *
- * Как это работает:
- *  • Комната = случайный код. Чтобы найти друг друга, участники обмениваются
- *    короткими служебными сообщениями через публичные MQTT-брокеры (сразу
- *    через несколько — если один недоступен, работают остальные). Сообщения
- *    шифруются AES-GCM ключом из кода комнаты, а тема (topic) — хеш кода,
- *    так что посторонние их не прочитают.
- *  • Между каждой парой участников — один RTCPeerConnection: канал данных
- *    (чат, статусы, синхронизация истории) плюс звук и видео. Предлагает
- *    соединение участник с меньшим id — так не бывает столкновений.
- *  • Микрофон, камера и экран подменяются через replaceTrack, без
- *    пересогласования.
+ *  • Комната = код. Участники находят друг друга через публичные MQTT-брокеры
+ *    (см. net.js): тема — хеш кода, сообщения зашифрованы ключом из кода.
+ *  • Между каждой парой — один RTCPeerConnection: канал данных (чат, статусы,
+ *    история, звонки) плюс звук и видео. Предлагает соединение участник
+ *    с меньшим id — так не бывает столкновений.
+ *  • Микрофон, камера и экран подменяются через replaceTrack.
+ *  • Личный чат с другом — такая же комната на двоих.
  */
 (function () {
   'use strict';
 
   const BT = (window.BT = window.BT || {});
-
-  // Публичные бесплатные MQTT-брокеры (MQTT поверх WebSocket).
-  const BROKERS = [
-    'wss://broker.emqx.io:8084/mqtt',
-    'wss://broker.hivemq.com:8884/mqtt',
-    'wss://test.mosquitto.org:8081/mqtt',
-  ];
-
-  // STUN + публичный TURN PeerJS (TURN нужен, если напрямую соединиться нельзя).
-  // Свой TURN можно добавить сюда.
-  const ICE_SERVERS = [
-    { urls: ['stun:stun.l.google.com:19302', 'stun:stun.cloudflare.com:3478'] },
-    {
-      urls: ['turn:eu-0.turn.peerjs.com:3478', 'turn:us-0.turn.peerjs.com:3478'],
-      username: 'peerjs',
-      credential: 'peerjsp',
-    },
-  ];
+  const NET = BT.net;
 
   const MAX_PEERS = 6; // участников в комнате, включая тебя
   const TICK_MS = 3000;
@@ -45,9 +24,6 @@
   const MAX_TEXT = 2000;
 
   const str = (s, max) => (typeof s === 'string' ? s.slice(0, max) : '');
-  const enc = new TextEncoder();
-  const dec = new TextDecoder();
-  const randId = () => Array.from(crypto.getRandomValues(new Uint8Array(8)), (b) => b.toString(16).padStart(2, '0')).join('');
 
   function cleanUser(u) {
     if (!u || typeof u !== 'object') return null;
@@ -85,180 +61,13 @@
 
   const wire = (m) => ({ id: m.id, uid: m.uid, name: m.name, color: m.color, text: m.text, ts: m.ts });
 
-  /* =====================================================================
-   * Крошечный MQTT 3.1.1 клиент поверх WebSocket (QoS 0, одна тема)
-   * ===================================================================== */
-  function mqttStr(s) {
-    const b = enc.encode(s);
-    return [b.length >> 8, b.length & 255, ...b];
-  }
-  function mqttPacket(type, body) {
-    const len = [];
-    let n = body.length;
-    do {
-      let d = n % 128;
-      n = Math.floor(n / 128);
-      if (n > 0) d |= 128;
-      len.push(d);
-    } while (n > 0);
-    const out = new Uint8Array(1 + len.length + body.length);
-    out[0] = type;
-    out.set(len, 1);
-    out.set(body, 1 + len.length);
-    return out;
-  }
-
-  class Broker {
-    constructor(url, topic, onMessage, onState) {
-      this.url = url;
-      this.topic = topic;
-      this.onMessage = onMessage;
-      this.onState = onState;
-      this.ready = false;
-      this.closed = false;
-      this.delay = 2000;
-      this.buf = new Uint8Array(0);
-    }
-
-    connect() {
-      if (this.closed) return;
-      let ws;
-      try {
-        ws = new WebSocket(this.url, ['mqtt']);
-      } catch (e) {
-        this.retry();
-        return;
-      }
-      this.ws = ws;
-      ws.binaryType = 'arraybuffer';
-      this.buf = new Uint8Array(0);
-      ws.onopen = () => {
-        const clientId = 'bt' + randId();
-        // CONNECT: «MQTT», уровень 4, clean session, keepalive 40 с
-        ws.send(mqttPacket(0x10, [...mqttStr('MQTT'), 4, 0x02, 0, 40, ...mqttStr(clientId)]));
-      };
-      ws.onmessage = (e) => this.feed(new Uint8Array(e.data));
-      ws.onclose = () => {
-        if (this.ws !== ws) return;
-        this.ws = null;
-        clearInterval(this.pinger);
-        if (this.ready) {
-          this.ready = false;
-          this.onState(this);
-        }
-        this.retry();
-      };
-      ws.onerror = () => {};
-    }
-
-    retry() {
-      if (this.closed) return;
-      clearTimeout(this.retryTimer);
-      this.retryTimer = setTimeout(() => this.connect(), this.delay);
-      this.delay = Math.min(30000, this.delay * 2);
-    }
-
-    /** Переподключиться сейчас, если связи нет. */
-    wake() {
-      if (this.closed || this.ws) return;
-      clearTimeout(this.retryTimer);
-      this.delay = 2000;
-      this.connect();
-    }
-
-    feed(chunk) {
-      const merged = new Uint8Array(this.buf.length + chunk.length);
-      merged.set(this.buf);
-      merged.set(chunk, this.buf.length);
-      let b = merged;
-      for (;;) {
-        if (b.length < 2) break;
-        let len = 0;
-        let mult = 1;
-        let i = 1;
-        let complete = false;
-        for (; i < 5 && i < b.length; i++) {
-          len += (b[i] & 127) * mult;
-          mult *= 128;
-          if (!(b[i] & 128)) {
-            complete = true;
-            break;
-          }
-        }
-        if (!complete) break;
-        const start = i + 1;
-        if (b.length < start + len) break;
-        this.handle(b[0], b.subarray(start, start + len));
-        b = b.subarray(start + len);
-      }
-      this.buf = b.slice();
-    }
-
-    handle(first, body) {
-      const type = first >> 4;
-      if (type === 2) {
-        // CONNACK
-        if (body[1] !== 0) {
-          if (this.ws) this.ws.close();
-          return;
-        }
-        // SUBSCRIBE на нашу тему, QoS 0
-        this.ws.send(mqttPacket(0x82, [0, 1, ...mqttStr(this.topic), 0]));
-      } else if (type === 9) {
-        // SUBACK
-        this.delay = 2000;
-        this.ready = true;
-        clearInterval(this.pinger);
-        this.pinger = setInterval(() => {
-          if (this.ws && this.ws.readyState === 1) this.ws.send(new Uint8Array([0xc0, 0]));
-        }, 25000);
-        this.onState(this);
-      } else if (type === 3) {
-        // PUBLISH
-        const qos = (first >> 1) & 3;
-        const tlen = (body[0] << 8) | body[1];
-        let p = 2 + tlen;
-        if (qos > 0) p += 2;
-        this.onMessage(body.slice(p));
-      }
-    }
-
-    publish(bytes) {
-      if (!this.ready || !this.ws || this.ws.readyState !== 1) return;
-      const head = mqttStr(this.topic);
-      const body = new Uint8Array(head.length + bytes.length);
-      body.set(head);
-      body.set(bytes, head.length);
-      try {
-        this.ws.send(mqttPacket(0x30, body));
-      } catch (e) {}
-    }
-
-    close() {
-      if (this.closed) return;
-      this.closed = true;
-      this.ready = false;
-      clearTimeout(this.retryTimer);
-      clearInterval(this.pinger);
-      const ws = this.ws;
-      this.ws = null;
-      if (ws) {
-        try {
-          if (ws.readyState === 1) ws.send(new Uint8Array([0xe0, 0])); // DISCONNECT
-          ws.close();
-        } catch (e) {}
-      }
-    }
-  }
-
-  /* =====================================================================
-   * Комната
-   * ===================================================================== */
   class Room {
-    constructor({ code, server, me, messages }) {
+    constructor({ code, server, me, messages, maxPeers, dm }) {
       this.code = code;
       this.server = /^wss?:\/\//i.test(server || '') ? server : '';
       this.me = me;
+      this.dm = dm || null;
+      this.maxPeers = maxPeers || MAX_PEERS;
       this.local = cleanState({});
       this.tracks = { audio: null, video: null };
       this.links = new Map(); // id собеседника → связь
@@ -273,6 +82,8 @@
       this.recvChain = Promise.resolve();
       this.lastAnnounce = 0;
       this.lastChange = Date.now();
+      this.onTopic = (bytes) => this.onSignalBytes(bytes);
+      this.onBroker = (b) => this.onBrokerState(b);
     }
 
     /* ---------- события ---------- */
@@ -302,25 +113,22 @@
         return;
       }
       this.stopped = false;
-      this.id = randId(); // id этой вкладки в комнате
+      this.id = NET.randId(); // id этой вкладки в комнате
       this.startedAt = Date.now();
       this.setStatus('connecting');
-      const h = async (s) => new Uint8Array(await crypto.subtle.digest('SHA-256', enc.encode(s)));
-      const hex = (b) => Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('');
-      this.topic = 'boltalka/v2/' + hex(await h('boltalka-topic:' + this.code)).slice(0, 32);
-      this.key = await crypto.subtle.importKey('raw', await h('boltalka-key:' + this.code), 'AES-GCM', false, ['encrypt', 'decrypt']);
+      this.topic = 'boltalka/v2/' + NET.hex(await NET.sha256('boltalka-topic:' + this.code)).slice(0, 32);
+      this.key = await NET.keyFrom('boltalka-key:' + this.code);
       if (this.stopped) return;
-      const urls = this.server ? [this.server] : BROKERS;
-      this.brokers = urls.map(
-        (u) =>
-          new Broker(
-            u,
-            this.topic,
-            (bytes) => this.onSignalBytes(bytes),
-            (b) => this.onBrokerState(b)
-          )
-      );
-      this.brokers.forEach((b) => b.connect());
+      this.brokers = (this.server ? [this.server] : NET.BROKERS).map(NET.broker);
+      for (const b of this.brokers) {
+        b.subscribe(this.topic, this.onTopic);
+        b.onState(this.onBroker);
+      }
+      if (this.brokers.some((b) => b.ready)) {
+        this.setStatus('online');
+        // даём подписке дойти до брокера
+        setTimeout(() => !this.stopped && this.announce(), 300);
+      }
       clearInterval(this.timer);
       this.timer = setInterval(() => this.tick(), TICK_MS);
     }
@@ -329,7 +137,7 @@
       if (this.stopped) return;
       if (broker.ready) {
         this.setStatus('online');
-        this.announce(); // новые знакомые могут быть на этом брокере
+        setTimeout(() => !this.stopped && this.announce(), 300);
       } else if (!this.brokers.some((b) => b.ready)) {
         this.setStatus('reconnecting');
       }
@@ -340,12 +148,15 @@
       this.stopped = true;
       clearInterval(this.timer);
       for (const link of [...this.links.values()]) this.dropLink(link, true);
-      // даём «bye» уйти, потом закрываем брокеров
       const brokers = this.brokers;
       this.brokers = [];
-      const closeAll = () => brokers.forEach((b) => b.close());
-      this.sendChain.then(closeAll);
-      setTimeout(closeAll, 300);
+      // «bye» успевает уйти, потом отписываемся
+      this.sendChain.then(() => {
+        for (const b of brokers) {
+          b.unsubscribe(this.topic, this.onTopic);
+          b.offState(this.onBroker);
+        }
+      });
       this.emit('peers');
       this.setStatus('idle');
     }
@@ -360,33 +171,22 @@
     /* ---------- служебные сообщения через брокеров ---------- */
     signal(obj) {
       obj.from = this.id;
-      obj.m = randId();
+      obj.m = NET.randId();
       const brokers = this.brokers;
       this.sendChain = this.sendChain
         .then(async () => {
-          const iv = crypto.getRandomValues(new Uint8Array(12));
-          const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, this.key, enc.encode(JSON.stringify(obj))));
-          const out = new Uint8Array(12 + ct.length);
-          out.set(iv);
-          out.set(ct, 12);
-          brokers.forEach((b) => b.publish(out));
+          const bytes = await NET.seal(this.key, obj);
+          brokers.forEach((b) => b.publish(this.topic, bytes));
         })
         .catch(() => {});
     }
 
     onSignalBytes(bytes) {
-      if (bytes.length < 29) return;
       this.recvChain = this.recvChain
         .then(async () => {
           if (this.stopped) return;
-          let obj;
-          try {
-            const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: bytes.subarray(0, 12) }, this.key, bytes.subarray(12));
-            obj = JSON.parse(dec.decode(plain));
-          } catch (e) {
-            return; // чужое или битое
-          }
-          if (!obj || typeof obj !== 'object' || typeof obj.from !== 'string' || obj.from === this.id) return;
+          const obj = await NET.open(this.key, bytes);
+          if (!obj || typeof obj.from !== 'string' || obj.from === this.id) return;
           if (typeof obj.m === 'string') {
             if (this.seen.has(obj.m)) return; // то же сообщение через другой брокер
             this.seen.add(obj.m);
@@ -400,18 +200,19 @@
 
     announce() {
       this.lastAnnounce = Date.now();
-      this.signal({ t: 'hi' });
+      this.signal({ t: 'hi', name: this.me.name });
     }
 
     async onSignal(obj) {
       const from = obj.from.slice(0, 40);
       const link = this.links.get(from);
+      const name = str(obj.name, 32);
       switch (obj.t) {
         case 'hi': {
           if (link) return; // уже знакомы или соединяемся
-          if (this.links.size >= MAX_PEERS - 1) return;
-          if (this.id < from) this.connectTo(from);
-          else if (!obj.to) this.signal({ t: 'hi', to: from }); // пусть предложит тот, у кого id меньше
+          if (this.links.size >= this.maxPeers - 1) return;
+          if (this.id < from) this.connectTo(from, name);
+          else if (!obj.to) this.signal({ t: 'hi', to: from, name: this.me.name }); // пусть предложит тот, у кого id меньше
           break;
         }
         case 'sdp': {
@@ -420,8 +221,8 @@
           if (sdp.type === 'offer') {
             if (from > this.id) return; // предлагать должен меньший id
             if (link) this.dropLink(link, true); // собеседник начал заново
-            if (this.links.size >= MAX_PEERS - 1) return;
-            const l = this.createLink(from, false);
+            if (this.links.size >= this.maxPeers - 1) return;
+            const l = this.createLink(from, false, name);
             await this.queueRtc(l, async () => {
               await l.pc.setRemoteDescription({ type: 'offer', sdp: sdp.sdp });
               for (const t of l.pc.getTransceivers()) {
@@ -469,12 +270,13 @@
     }
 
     /* ---------- соединения с собеседниками ---------- */
-    createLink(id, outgoing) {
-      const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+    createLink(id, outgoing, hint) {
+      const pc = new RTCPeerConnection({ iceServers: NET.ICE_SERVERS });
       const dc = pc.createDataChannel('bt', { negotiated: true, id: 0, ordered: true });
       const link = {
         id,
         outgoing,
+        hint: hint || '',
         pc,
         dc,
         open: false,
@@ -490,6 +292,7 @@
         iceQueue: [],
       };
       this.links.set(id, link);
+      this.emit('peers');
       dc.onopen = () => {
         if (this.links.get(id) !== link) return;
         link.open = true;
@@ -519,8 +322,10 @@
       pc.onconnectionstatechange = () => {
         if (this.links.get(id) !== link) return;
         link.mediaState = pc.connectionState;
-        if (pc.connectionState === 'failed' || pc.connectionState === 'closed') this.dropLink(link);
-        else this.emit('peers');
+        if (pc.connectionState === 'failed' || pc.connectionState === 'closed') {
+          if (!link.open) this.emit('link-failed', { name: link.hint });
+          this.dropLink(link);
+        } else this.emit('peers');
       };
       if (outgoing) {
         link.tx.audio = pc.addTransceiver('audio', { direction: 'sendrecv' });
@@ -529,12 +334,12 @@
       return link;
     }
 
-    connectTo(id) {
-      const link = this.createLink(id, true);
+    connectTo(id, hint) {
+      const link = this.createLink(id, true, hint);
       this.applySenders(link);
       this.queueRtc(link, async () => {
         await link.pc.setLocalDescription(await link.pc.createOffer());
-        this.signal({ t: 'sdp', to: id, sdp: { type: 'offer', sdp: link.pc.localDescription.sdp } });
+        this.signal({ t: 'sdp', to: id, name: this.me.name, sdp: { type: 'offer', sdp: link.pc.localDescription.sdp } });
       });
     }
 
@@ -568,13 +373,16 @@
           }
           this.send(link, { t: 'ping' });
         } else if (now - link.createdAt > CONNECT_TIMEOUT) {
+          this.emit('link-failed', { name: link.hint });
           this.dropLink(link, true);
+          this.emit('peers');
         }
       }
       const anyUp = this.brokers.some((b) => b.ready);
       if (!anyUp) {
         if (now - this.startedAt > 15000) this.setStatus('offline');
       } else {
+        this.setStatus('online');
         const alone = !this.members().length;
         const every = alone ? (now - this.lastChange < 60000 ? 5000 : 15000) : 30000;
         if (now - this.lastAnnounce >= every) this.announce();
@@ -656,6 +464,9 @@
           link.typingUntil = Date.now() + 4500;
           this.emit('typing');
           break;
+        case 'call':
+          if (link.info) this.emit('call', { link, data });
+          break;
         default:
           break; // ping и всё незнакомое
       }
@@ -698,6 +509,10 @@
       this.broadcast({ t: 'typing' });
     }
 
+    sendCall(data) {
+      return this.broadcast(Object.assign({ t: 'call' }, data));
+    }
+
     clearHistory() {
       this.messages = [];
       this.msgIds.clear();
@@ -707,6 +522,10 @@
     /* ---------- кто где ---------- */
     members() {
       return [...this.links.values()].filter((l) => l.open && l.info);
+    }
+    /** Имена тех, с кем сейчас соединяемся. */
+    connecting() {
+      return [...this.links.values()].filter((l) => !l.open || !l.info).map((l) => l.hint || 'друг');
     }
     typingNames() {
       const now = Date.now();

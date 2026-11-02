@@ -65,8 +65,8 @@ code, kbd { font-family: var(--mono); font-size: 0.9em; background: var(--bg0); 
 .members { grid-area: members; }
 .app.members-hidden { grid-template-columns: 72px 248px minmax(0, 1fr) 0; }
 .app.members-hidden .members { display: none; }
-.app.no-room { grid-template-columns: 72px 0 minmax(0, 1fr) 0; }
-.app.no-room .sidebar, .app.no-room .members { display: none; }
+.app.no-members { grid-template-columns: 72px 248px minmax(0, 1fr) 0; }
+.app.no-members .members { display: none; }
 .scrim { display: none; }
 
 /* ---------- полоса комнат ---------- */
@@ -82,9 +82,24 @@ code, kbd { font-family: var(--mono); font-size: 0.9em; background: var(--bg0); 
 }
 .rail::-webkit-scrollbar { display: none; }
 .rail-logo {
-  width: 48px; height: 48px; border-radius: 16px;
-  background: var(--accent); color: #fff;
+  position: relative;
+  width: 48px; height: 48px; border-radius: 50%;
+  background: var(--bg3); color: var(--text);
   display: grid; place-items: center; flex-shrink: 0;
+  transition: border-radius 0.18s, background 0.18s;
+}
+.rail-logo:hover, .rail-logo.active { border-radius: 16px; background: var(--accent); color: #fff; }
+.rail-logo::before {
+  content: ''; position: absolute; left: -12px; top: 50%;
+  width: 4px; height: 40px; margin-top: -20px; border-radius: 0 4px 4px 0;
+  background: var(--text); opacity: 0; transition: opacity 0.18s;
+}
+.rail-logo.active::before { opacity: 1; }
+.rail-badge {
+  position: absolute; right: -4px; bottom: -4px;
+  min-width: 20px; height: 20px; padding: 0 5px; border-radius: 10px;
+  background: var(--red); color: #fff; font-size: 11.5px; font-weight: 800;
+  display: grid; place-items: center; box-shadow: 0 0 0 3px var(--bg0);
 }
 .rail-logo svg { width: 28px; height: 28px; }
 .rail-sep { width: 32px; height: 2px; border-radius: 2px; background: var(--line); flex-shrink: 0; }
@@ -442,36 +457,6 @@ code, kbd { font-family: var(--mono); font-size: 0.9em; background: var(--bg0); 
 .mem-invite { margin: 18px 8px 0; padding: 14px; border-radius: var(--radius); background: var(--bg2); font-size: 13.5px; color: var(--muted); }
 .mem-invite p { margin: 0 0 10px; }
 
-/* ---------- приветствие ---------- */
-.welcome { flex: 1; overflow-y: auto; display: flex; align-items: center; justify-content: center; padding: 32px 20px; }
-.welcome-card { max-width: 640px; width: 100%; text-align: center; }
-.welcome-logo {
-  width: 84px; height: 84px; border-radius: 26px; margin: 0 auto 18px;
-  background: var(--accent); color: #fff;
-  display: grid; place-items: center;
-  box-shadow: 0 16px 50px rgba(124, 108, 255, 0.35);
-}
-.welcome-logo svg { width: 48px; height: 48px; }
-.welcome h1 { margin: 0 0 8px; font-size: 36px; letter-spacing: -0.02em; }
-.lead { margin: 0 auto 26px; max-width: 480px; color: var(--muted); font-size: 16px; }
-.welcome-actions { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
-.steps {
-  list-style: none; counter-reset: s; padding: 0; margin: 36px 0 0;
-  display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; text-align: left;
-}
-.steps li {
-  counter-increment: s;
-  background: var(--bg1); border: 1px solid var(--line); border-radius: 12px;
-  padding: 14px 14px 14px; display: flex; flex-direction: column; gap: 2px;
-}
-.steps li::before {
-  content: counter(s);
-  width: 26px; height: 26px; border-radius: 50%; margin-bottom: 8px;
-  background: var(--accent-soft); color: #b3abff; font-weight: 800; font-size: 13px;
-  display: grid; place-items: center;
-}
-.steps span { color: var(--muted); font-size: 13.5px; }
-
 /* ---------- кнопки и поля ---------- */
 .btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 8px;
@@ -604,7 +589,7 @@ code, kbd { font-family: var(--mono); font-size: 0.9em; background: var(--bg0); 
     box-shadow: var(--shadow);
   }
   .app.members-open .members { transform: none; }
-  .app.no-room .members { display: none; }
+  .app.no-members .members { display: none; }
   .app.members-open .scrim { display: block; }
   .mh-topic { display: none; }
 }
@@ -612,7 +597,7 @@ code, kbd { font-family: var(--mono); font-size: 0.9em; background: var(--bg0); 
 /* ---------- телефоны: комнаты и каналы — в выдвижном меню ---------- */
 @media (max-width: 760px) {
   body { font-size: 15.5px; }
-  .app, .app.members-hidden, .app.no-room { grid-template-columns: minmax(0, 1fr); grid-template-areas: 'main'; }
+  .app, .app.members-hidden, .app.no-members { grid-template-columns: minmax(0, 1fr); grid-template-areas: 'main'; }
   .rail, .sidebar {
     position: fixed; top: 0; bottom: 0; z-index: 40;
     transform: translateX(calc(-100% - 100px));
@@ -620,7 +605,6 @@ code, kbd { font-family: var(--mono); font-size: 0.9em; background: var(--bg0); 
   }
   .rail { left: 0; width: 72px; }
   .sidebar { left: 72px; width: min(280px, calc(100vw - 112px)); box-shadow: var(--shadow); }
-  .app.no-room .sidebar { display: none; }
   .app.drawer-open .rail, .app.drawer-open .sidebar { transform: none; visibility: visible; transition: transform 0.22s ease, visibility 0s; }
   .app.drawer-open .scrim { display: block; }
   .menu-btn { display: inline-grid; }
@@ -645,4 +629,130 @@ code, kbd { font-family: var(--mono); font-size: 0.9em; background: var(--bg0); 
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+
+/* ---------- друзья: боковая панель ---------- */
+.dm-row {
+  width: 100%;
+  display: flex; align-items: center; gap: 10px;
+  padding: 6px 8px; margin: 1px 0; border-radius: 6px; text-align: left;
+  color: var(--muted);
+}
+.dm-row:hover { background: var(--bg3); color: var(--text2); }
+.dm-row.active { background: var(--bg4); color: var(--text); }
+.dm-row.unread .dm-name { color: var(--text); font-weight: 700; }
+.dm-row .presence { border-color: var(--bg1); }
+.dm-row:hover .presence { border-color: var(--bg3); }
+.dm-row.active .presence { border-color: var(--bg4); }
+.dm-text { flex: 1; min-width: 0; }
+.dm-name { font-weight: 600; font-size: 14.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dm-sub { font-size: 12px; color: var(--faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.side-empty { margin: 8px; font-size: 13.5px; color: var(--muted); }
+.vb-info { flex: 1; min-width: 0; text-align: left; border-radius: 6px; padding: 2px 4px; margin-left: -4px; }
+.vb-info:hover { background: var(--bg3); }
+.presence.sm { width: 11px; height: 11px; border-width: 2px; border-color: var(--bg2); }
+.mh-name { overflow: hidden; text-overflow: ellipsis; }
+
+/* ---------- страница «Друзья» ---------- */
+.home { flex: 1; overflow-y: auto; }
+.home-wrap { max-width: 760px; margin: 0 auto; padding: 20px 20px 40px; display: flex; flex-direction: column; gap: 14px; }
+.card { background: var(--bg1); border: 1px solid var(--line); border-radius: 14px; padding: 16px; }
+.card h3 { margin: 0 0 10px; font-size: 13px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
+.card .hint { margin-top: 0; }
+.me-card { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; background: linear-gradient(135deg, rgba(124, 108, 255, 0.16), rgba(45, 212, 167, 0.08)), var(--bg1); }
+.me-card-text { flex: 1; min-width: 220px; }
+.me-card-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+.big-code { font-family: var(--mono); font-size: 26px; font-weight: 800; letter-spacing: 0.06em; color: var(--text); margin: 2px 0 4px; }
+.big-code.center { text-align: center; margin: 4px 0 16px; font-size: 30px; }
+.add-form { display: flex; gap: 8px; }
+.add-form input {
+  flex: 1; min-width: 0; padding: 10px 12px; border-radius: 8px;
+  background: var(--bg0); border: 1px solid var(--line); outline: 0; font-family: var(--mono);
+}
+.add-form input:focus { border-color: var(--accent); }
+.f-row { display: flex; align-items: center; gap: 4px; padding: 6px 4px; border-top: 1px solid var(--line); }
+.card h3 + .f-row { border-top: 0; }
+.f-main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; padding: 4px; border-radius: 8px; text-align: left; }
+button.f-main:hover { background: var(--bg3); }
+.f-main .presence { border-color: var(--bg1); }
+.f-text { min-width: 0; }
+.f-name { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.f-sub { font-size: 12.5px; color: var(--muted); }
+.f-sub.on { color: var(--green); }
+.f-row .icon-btn.call { color: var(--green); }
+.f-row .icon-btn.call:hover { background: rgba(45, 212, 167, 0.15); color: var(--green); }
+.req-btns { display: flex; gap: 6px; flex-shrink: 0; }
+.btn.sm { padding: 7px 12px; font-size: 13.5px; }
+.btn.call-btn { background: var(--green); color: #0b1f19; }
+.btn.call-btn:hover { background: var(--green-d); }
+.btn-row { display: flex; gap: 8px; flex-wrap: wrap; margin: 4px 0 12px; }
+.btn-row.center { justify-content: center; }
+.card .btn-row { margin-bottom: 0; }
+.link-btn { color: inherit; text-decoration: underline; font-weight: 700; }
+.intro .avatar.xl { margin-bottom: 12px; }
+.intro code { font-size: 0.85em; }
+
+/* ---------- аккаунт ---------- */
+.tabs { display: flex; gap: 4px; padding: 4px; margin: 0 0 16px; background: var(--bg0); border-radius: 10px; }
+.tab { flex: 1; padding: 8px 10px; border-radius: 7px; font-weight: 650; font-size: 14px; color: var(--muted); }
+.tab.on { background: var(--bg3); color: var(--text); }
+.acc-row { display: flex; align-items: center; gap: 10px; padding: 10px 12px; margin-bottom: 6px; border-radius: 10px; background: var(--bg0); font-size: 14px; }
+.acc-row > .ic { color: var(--muted); }
+.acc-row .hint { display: inline; }
+.mono { font-family: var(--mono); font-weight: 700; letter-spacing: 0.04em; color: var(--text); margin-top: 2px; }
+.preview-row.center { align-items: center; margin-bottom: 8px; }
+
+/* ---------- проверка связи ---------- */
+.diag-cat { font-size: 12px; font-weight: 700; letter-spacing: 0.03em; text-transform: uppercase; color: var(--muted); margin: 12px 0 6px; }
+.diag-cat:first-child { margin-top: 0; }
+.diag-row { display: flex; gap: 10px; align-items: flex-start; padding: 8px 10px; margin-bottom: 6px; border-radius: 10px; background: var(--bg0); }
+.diag-row .hint { margin: 2px 0 0; }
+.diag-ic { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; flex-shrink: 0; }
+.diag-ic .ic { width: 16px; height: 16px; }
+.diag-row.ok .diag-ic { background: rgba(45, 212, 167, 0.18); color: var(--green); }
+.diag-row.bad .diag-ic { background: rgba(255, 93, 108, 0.18); color: var(--red); }
+.diag-verdict { margin: 12px 0 4px; padding: 10px 12px; border-radius: 10px; background: var(--accent-soft); color: var(--text2); font-size: 14px; }
+.diag-verdict.warn { background: rgba(245, 196, 81, 0.12); color: #f7d98c; }
+
+/* ---------- звонки ---------- */
+.call-overlay {
+  position: fixed; inset: 0; z-index: 80;
+  background: rgba(5, 6, 10, 0.72); backdrop-filter: blur(6px);
+  display: flex; align-items: center; justify-content: center; padding: 16px;
+  animation: fade 0.15s ease-out;
+}
+.call-card {
+  width: 100%; max-width: 320px; text-align: center;
+  background: var(--bg2); border: 1px solid var(--line); border-radius: 20px;
+  padding: 28px 20px 24px; box-shadow: var(--shadow);
+  animation: pop 0.2s ease-out;
+}
+.call-ava { display: flex; justify-content: center; margin-bottom: 14px; }
+.call-ava .avatar { animation: ringpulse 1.4s ease-out infinite; }
+@keyframes ringpulse {
+  0% { box-shadow: 0 0 0 0 rgba(45, 212, 167, 0.55); }
+  100% { box-shadow: 0 0 0 26px rgba(45, 212, 167, 0); }
+}
+.call-name { font-size: 22px; font-weight: 800; }
+.call-sub { color: var(--muted); margin: 2px 0 22px; }
+.call-btns { display: flex; justify-content: center; gap: 48px; }
+.round.accept { background: var(--green); color: #0b1f19; }
+.round.accept:hover { background: var(--green-d); }
+.call-btns .round { width: 60px; height: 60px; }
+.call-banner {
+  display: flex; align-items: center; gap: 12px;
+  margin: 12px 16px 0; padding: 10px 12px; border-radius: 12px;
+  background: rgba(45, 212, 167, 0.1); border: 1px solid rgba(45, 212, 167, 0.25);
+}
+.cb-ava .avatar { animation: ringpulse 1.4s ease-out infinite; }
+.cb-text { flex: 1; min-width: 0; }
+
+@media (max-width: 760px) {
+  .home-wrap { padding: 12px 10px 32px; }
+  .big-code { font-size: 22px; }
+  .hide-xs { display: none; }
+  .f-row.req { flex-wrap: wrap; }
+  .req-btns { width: 100%; justify-content: flex-end; }
+  .me-card-btns { width: 100%; }
+  .me-card-btns .btn { flex: 1; }
 }

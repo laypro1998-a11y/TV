@@ -159,6 +159,14 @@
     share: '<path d="M12 3v12M7.5 7.5 12 3l4.5 4.5M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7"/>',
     clock: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>',
     signal: '<path d="M5 18v-3M10 18v-6M15 18V9M20 18V5"/>',
+    phone: '<path d="M5.2 3.5h3.3l1.7 4.3-2.2 1.5a11.5 11.5 0 0 0 6.7 6.7l1.5-2.2 4.3 1.7v3.3a2 2 0 0 1-2.2 2A16.5 16.5 0 0 1 3.2 5.7a2 2 0 0 1 2-2.2z"/>',
+    userPlus: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0M19 8v6M16 11h6"/>',
+    chat: '<path d="M5 4.5h14a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-7l-5 4v-4H5a2 2 0 0 1-2-2v-9a2 2 0 0 1 2-2z"/>',
+    check: '<path d="m5 12.5 4.5 4.5L19 7.5"/>',
+    key: '<circle cx="8" cy="15" r="4"/><path d="m11 12 9-9M16.5 6.5l3 3M14 9l2 2"/>',
+    bell: '<path d="M6 16v-5a6 6 0 0 1 12 0v5l2 2H4z"/><path d="M10 20.5a2 2 0 0 0 4 0"/>',
+    more: '<circle cx="5" cy="12" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="19" cy="12" r="1.4"/>',
+    eye: '<path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/>',
   };
   BT.icon = function (name, cls) {
     return `<svg class="ic${cls ? ' ' + cls : ''}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[name] || ''}</svg>`;
@@ -180,10 +188,12 @@
     online: [[659.25, 0, 0.1, 0.05], [880, 0.08, 0.14, 0.05]],
     mute: [[440, 0, 0.07]],
     unmute: [[660, 0, 0.07]],
+    ring: [[784, 0, 0.16, 0.09], [988, 0.18, 0.16, 0.09], [784, 0.42, 0.16, 0.09], [988, 0.6, 0.16, 0.09]],
+    ringback: [[425, 0, 1.0, 0.035]],
   };
   BT.soundsOn = true;
-  BT.sound = function (name) {
-    if (!BT.soundsOn) return;
+  BT.sound = function (name, force) {
+    if (!BT.soundsOn && !force) return;
     const ctx = actx; // не создаём контекст без жеста пользователя
     if (!ctx || ctx.state !== 'running' || !SOUNDS[name]) return;
     const t0 = ctx.currentTime + 0.01;
